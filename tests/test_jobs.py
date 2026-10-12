@@ -1,11 +1,14 @@
+import shutil
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
 from tests.fakes import FakeEngine, FakePreviewer, SteppedEngine
+from transcriber.engine import AudioClip
 from transcriber.jobs import (
     JobAlreadyRunning,
     JobManager,
@@ -29,7 +32,8 @@ def fixed_clock() -> datetime:
 
 @pytest.fixture
 def recording(tmp_path: Path) -> Path:
-    path = tmp_path / "meeting.mp4"
+    (tmp_path / "videos").mkdir()
+    path = tmp_path / "videos" / "meeting.mp4"
     path.write_bytes(b"not really a video")
     return path
 
@@ -275,12 +279,23 @@ def test_previews_are_cleared_when_the_next_job_starts_and_when_the_app_stops(
     assert not second.parent.exists()
 
 
+class FolderGoneEngine(FakeEngine):
+    """The Recording's folder disappears mid-Job, so the Transcript can't be saved next to it
+    (standing in for a read-only folder, which tests can't portably create)."""
+
+    def transcribe(self, audio: AudioClip, mode: LanguageMode) -> Generator[Segment]:
+        yield from super().transcribe(audio, mode)
+        shutil.rmtree(self.recording_folder)
+
+    def extract_audio(self, recording: Path) -> AudioClip:
+        self.recording_folder = recording.parent
+        return super().extract_audio(recording)
+
+
 def test_when_the_transcript_cannot_be_saved_next_to_the_recording_the_job_still_finishes(
     recording: Path,
 ) -> None:
-    blocked = recording.parent / "meeting.transcript.2026-10-12_14-30-05.txt"
-    blocked.mkdir()  # something already occupies the name, like a read-only folder would
-    manager = JobManager(FakeEngine(SEGMENTS), clock=fixed_clock)
+    manager = JobManager(FolderGoneEngine(SEGMENTS), clock=fixed_clock)
 
     manager.start(recording)
     manager.wait(timeout=5)
@@ -296,8 +311,7 @@ def test_when_the_transcript_cannot_be_saved_next_to_the_recording_the_job_still
 def test_save_as_writes_the_transcript_where_the_user_chooses(
     recording: Path, tmp_path: Path
 ) -> None:
-    (recording.parent / "meeting.transcript.2026-10-12_14-30-05.txt").mkdir()
-    manager = JobManager(FakeEngine(SEGMENTS), clock=fixed_clock)
+    manager = JobManager(FolderGoneEngine(SEGMENTS), clock=fixed_clock)
     manager.start(recording)
     manager.wait(timeout=5)
     elsewhere = tmp_path / "elsewhere" / "notes.txt"
@@ -312,3 +326,91 @@ def test_save_as_writes_the_transcript_where_the_user_chooses(
     assert elsewhere.read_text(encoding="utf-8") == (
         "[00:00:00] Hello and welcome.\n[00:00:03] Let's get started.\n"
     )
+
+
+def test_two_transcripts_made_in_the_same_second_are_both_kept(recording: Path) -> None:
+    manager = JobManager(FakeEngine(SEGMENTS), clock=fixed_clock)
+    manager.start(recording)
+    manager.wait(timeout=5)
+    first = manager.current().saved_to  # type: ignore[union-attr]
+
+    manager.start(recording)
+    manager.wait(timeout=5)
+    second = manager.current().saved_to  # type: ignore[union-attr]
+
+    assert first == recording.parent / "meeting.transcript.2026-10-12_14-30-05.txt"
+    assert second == recording.parent / "meeting.transcript.2026-10-12_14-30-05-2.txt"
+    assert first.read_text(encoding="utf-8") == second.read_text(encoding="utf-8")
+
+
+class GatedPreviewer(FakePreviewer):
+    """Holds `needs_preview` until the test opens the gate, widening the window in `start`."""
+
+    def __init__(self) -> None:
+        super().__init__(needed=False)
+        self.entered = threading.Event()
+        self.gate = threading.Event()
+
+    def needs_preview(self, recording: Path) -> bool:
+        self.entered.set()
+        self.gate.wait(5)
+        return False
+
+
+def test_two_imports_at_the_same_moment_start_only_one_job(recording: Path) -> None:
+    previewer = GatedPreviewer()
+    engine = SteppedEngine(SEGMENTS)
+    manager = JobManager(engine, clock=fixed_clock, previewer=previewer)
+    refused: list[Exception] = []
+
+    def import_recording() -> None:
+        try:
+            manager.start(recording)
+        except JobAlreadyRunning as error:
+            refused.append(error)
+
+    first = threading.Thread(target=import_recording)
+    first.start()
+    previewer.entered.wait(5)
+    second = threading.Thread(target=import_recording)
+    second.start()
+    time.sleep(0.1)  # give the second import time to slip past the "already running" check
+    previewer.gate.set()
+    first.join(5)
+    second.join(5)
+
+    assert len(refused) == 1
+    engine.step(len(SEGMENTS))
+    manager.close()
+
+
+def test_cancelling_takes_effect_at_once_even_while_the_engine_is_busy(recording: Path) -> None:
+    engine = SteppedEngine(SEGMENTS)
+    manager = JobManager(engine, clock=fixed_clock)
+    manager.start(recording)
+    wait_for(lambda: manager.current().state is JobState.TRANSCRIBING)  # type: ignore[union-attr]
+
+    manager.cancel()  # the engine is still working on its first Segment
+
+    assert manager.current().state is JobState.CANCELLED  # type: ignore[union-attr]
+    engine.step(len(SEGMENTS))  # the engine finishes its batch later...
+    manager.wait(timeout=5)
+    job = manager.current()
+    assert job is not None
+    assert job.state is JobState.CANCELLED  # ...and is ignored
+    assert job.segments == []
+    assert list(recording.parent.glob("*.txt")) == []
+
+
+def test_a_failed_job_stops_its_preview(recording: Path) -> None:
+    engine = FakeEngine(SEGMENTS)
+    engine.fail_with = ValueError("Invalid data found when processing input")
+    previewer = FakePreviewer(needed=True)
+    manager = JobManager(engine, clock=fixed_clock, previewer=previewer)
+
+    manager.start(recording)
+    wait_for(lambda: manager.current().settled)  # type: ignore[union-attr]
+
+    assert previewer.saw_cancel
+    assert manager.current().preview_status is PreviewStatus.DISCARDED  # type: ignore[union-attr]
+    manager.close()

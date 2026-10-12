@@ -29,7 +29,10 @@ def render_transcript(segments: Iterable[Segment]) -> str:
     return "".join(f"[{format_timestamp(s.start)}] {s.text.strip()}\n" for s in segments)
 
 
-def transcript_path_for(recording: Path, now: datetime) -> Path:
-    """Where a Transcript of `recording` made at `now` is saved: next to it, never overwriting."""
+def transcript_path_for(recording: Path, now: datetime, copy: int = 1) -> Path:
+    """Where a Transcript of `recording` made at `now` is saved: next to it, never overwriting.
+
+    `copy` numbers further Transcripts made within the same second (`...05-2.txt`)."""
     stamp = now.strftime("%Y-%m-%d_%H-%M-%S")
-    return recording.with_name(f"{recording.stem}.transcript.{stamp}.txt")
+    suffix = f"-{copy}" if copy > 1 else ""
+    return recording.with_name(f"{recording.stem}.transcript.{stamp}{suffix}.txt")

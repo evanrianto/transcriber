@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import shutil
 import tempfile
 import threading
@@ -37,7 +38,7 @@ class PreviewStatus(StrEnum):
     CONVERTING = "converting"
     READY = "ready"
     FAILED = "failed"
-    DISCARDED = "discarded"  # the Job was cancelled
+    DISCARDED = "discarded"  # the Job was cancelled or failed
 
 
 class RecordingNotFound(Exception):
@@ -70,19 +71,31 @@ class Job:
     percent: float = 0.0
     eta_seconds: float | None = None
     transcribing_since: float | None = None
+    saving: bool = False  # the Transcript is being written, so it's too late to cancel
     preview_status: PreviewStatus = PreviewStatus.NOT_NEEDED
     preview_percent: float = 0.0
     preview_path: Path | None = None
     version: int = 0  # bumped on every change, so watchers know when to send an update
 
-    def record_progress(self, segment: Segment, now: float) -> None:
-        """Update percent and time remaining from how far into the Recording `segment` ends."""
+    def start_transcribing(self, duration: float, now: float) -> None:
+        self.duration = duration
+        self.state = JobState.TRANSCRIBING
+        self.transcribing_since = now
+
+    def add_segment(self, segment: Segment, now: float) -> None:
+        """Add `segment`, updating percent and time remaining from how far into the Recording
+        it ends."""
+        self.segments.append(segment)
         if not self.duration or self.transcribing_since is None:
             return
         fraction = min(1.0, segment.end / self.duration)
         self.percent = round(fraction * 100, 1)
         elapsed = now - self.transcribing_since
         self.eta_seconds = elapsed * (1 - fraction) / fraction if fraction > 0 else None
+
+    def fail(self, error: Exception) -> None:
+        self.error = str(error) or type(error).__name__
+        self.state = JobState.FAILED
 
     @property
     def settled(self) -> bool:
@@ -110,7 +123,8 @@ class JobManager:
         self._timer = timer
         self._previewer = previewer
         self._preview_dir: Path | None = None
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()  # guards the current Job's fields
+        self._starting = threading.Lock()  # one `start` at a time, so only one Job can begin
         self._job: Job | None = None
         self._worker: threading.Thread | None = None
         self._preview_worker: threading.Thread | None = None
@@ -127,46 +141,55 @@ class JobManager:
         """Start transcribing `recording`. Only one Job runs at a time; there is no queue."""
         if not recording.is_file():
             raise RecordingNotFound(f"No file at {recording}")
-        job = Job(
-            id=uuid.uuid4().hex,
-            recording=recording,
-            language_mode=language_mode,
-            state=JobState.EXTRACTING_AUDIO,
-        )
-        with self._lock:
-            if self._job is not None and not self._job.state.finished:
-                raise JobAlreadyRunning(f"A Job is already running for {self._job.recording.name}")
-            previous_cancel = self._cancel
-        # A finished Job's preview may still be converting; it's no longer wanted.
-        previous_cancel.set()
-        if self._preview_worker is not None:
-            self._preview_worker.join()
-        self._clear_previews()
+        with self._starting:
+            with self._lock:
+                if self._job is not None and not self._job.state.finished:
+                    raise JobAlreadyRunning(
+                        f"A Job is already running for {self._job.recording.name}"
+                    )
+                previous_cancel = self._cancel
+            # A finished Job's preview may still be converting; it's no longer wanted.
+            previous_cancel.set()
+            if self._preview_worker is not None:
+                self._preview_worker.join()
+            self._clear_previews()
 
-        needs_preview = self._needs_preview(recording)
-        if needs_preview:
-            job.preview_status = PreviewStatus.CONVERTING
-        with self._lock:
-            self._job = job
-            self._cancel = threading.Event()
-            cancel = self._cancel
-        self._worker = threading.Thread(
-            target=self._run, args=(job, cancel), name="job", daemon=True
-        )
-        self._worker.start()
-        if needs_preview:
-            self._preview_worker = threading.Thread(
-                target=self._make_preview, args=(job, cancel), name="preview", daemon=True
+            job = Job(
+                id=uuid.uuid4().hex,
+                recording=recording,
+                language_mode=language_mode,
+                state=JobState.EXTRACTING_AUDIO,
             )
-            self._preview_worker.start()
-        return job
+            needs_preview = self._needs_preview(recording)
+            if needs_preview:
+                job.preview_status = PreviewStatus.CONVERTING
+            with self._lock:
+                self._job = job
+                self._cancel = threading.Event()
+                cancel = self._cancel
+            self._worker = threading.Thread(
+                target=self._run, args=(job, cancel), name="job", daemon=True
+            )
+            self._worker.start()
+            if needs_preview:
+                self._preview_worker = threading.Thread(
+                    target=self._make_preview, args=(job, cancel), name="preview", daemon=True
+                )
+                self._preview_worker.start()
+            return job
 
     def cancel(self) -> None:
-        """Stop the running Job as soon as the engine yields; a cancelled Job writes nothing."""
+        """Cancel the running Job at once; a cancelled Job writes nothing.
+
+        The engine may still be busy (decoding audio, or a batch on the GPU); whatever it
+        produces after this is ignored, and a new Job can start straight away."""
         with self._lock:
-            if self._job is None or self._job.state.finished:
+            job = self._job
+            if job is None or job.state.finished or job.saving:
                 raise NoJobRunning("No Job is running")
             self._cancel.set()
+            job.state = JobState.CANCELLED
+            job.version += 1
 
     def suggested_transcript_path(self) -> Path:
         """Where the current Transcript would normally be saved (to pre-fill Save as…)."""
@@ -240,48 +263,56 @@ class JobManager:
             job.preview_percent = 100.0 if path else job.preview_percent
             job.version += 1
 
+    def _update(self, job: Job, cancel: threading.Event, change: Callable[[], None]) -> bool:
+        """Apply `change` to the running Job, unless it has been cancelled meanwhile."""
+        with self._lock:
+            if cancel.is_set():
+                return False
+            change()
+            job.version += 1
+            return True
+
     def _run(self, job: Job, cancel: threading.Event) -> None:
         try:
             audio = self._engine.extract_audio(job.recording)
-            if cancel.is_set():
-                return self._mark_cancelled(job)
-            with self._lock:
-                job.duration = audio.duration
-                job.state = JobState.TRANSCRIBING
-                job.transcribing_since = self._timer()
-                job.version += 1
+            if not self._update(
+                job, cancel, lambda: job.start_transcribing(audio.duration, self._timer())
+            ):
+                return
             segments = self._engine.transcribe(audio, job.language_mode)
-            for segment in segments:
-                if cancel.is_set():
-                    segments.close()
-                    return self._mark_cancelled(job)
-                with self._lock:
-                    job.segments.append(segment)
-                    job.record_progress(segment, self._timer())
-                    job.version += 1
-            if cancel.is_set():
-                return self._mark_cancelled(job)
-            saved_to: Path | None = transcript_path_for(job.recording, self._clock())
-            save_error = None
             try:
-                assert saved_to is not None
-                saved_to.write_text(render_transcript(job.segments), encoding="utf-8")
-            except OSError as error:
-                saved_to = None
-                reason = error.strerror or str(error)
-                save_error = f"Couldn't save next to the video in {job.recording.parent} ({reason})"
+                for segment in segments:
+                    if not self._update(
+                        job, cancel, lambda: job.add_segment(segment, self._timer())
+                    ):
+                        return
+            finally:
+                segments.close()
+            if not self._update(job, cancel, lambda: setattr(job, "saving", True)):
+                return
+            saved_to, save_error = self._save_next_to_recording(job)
             with self._lock:
                 job.saved_to = saved_to
                 job.save_error = save_error
                 job.state = JobState.DONE
                 job.version += 1
         except Exception as error:
-            with self._lock:
-                job.error = str(error) or type(error).__name__
-                job.state = JobState.FAILED
-                job.version += 1
+            self._update(job, cancel, lambda: job.fail(error))
+            cancel.set()  # a failed Job's preview is no longer wanted
 
-    def _mark_cancelled(self, job: Job) -> None:
-        with self._lock:
-            job.state = JobState.CANCELLED
-            job.version += 1
+    def _save_next_to_recording(self, job: Job) -> tuple[Path | None, str | None]:
+        """Write the Transcript next to the Recording, under a name no other file has."""
+        text = render_transcript(job.segments)
+        now = self._clock()
+        for copy in itertools.count(1):
+            path = transcript_path_for(job.recording, now, copy)
+            try:
+                with path.open("x", encoding="utf-8") as file:
+                    file.write(text)
+                return path, None
+            except FileExistsError:
+                continue
+            except OSError as error:
+                reason = error.strerror or str(error)
+                return None, f"Couldn't save next to the video in {job.recording.parent} ({reason})"
+        raise AssertionError("unreachable")

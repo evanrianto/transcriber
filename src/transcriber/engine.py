@@ -58,6 +58,11 @@ class WhisperEngine:
             self._loading = True
         threading.Thread(target=self._load, name="whisper-load", daemon=True).start()
 
+    @property
+    def loaded(self) -> bool:
+        """Whether loading has finished; until then `device` may still fall back to the CPU."""
+        return self._loaded.is_set()
+
     @staticmethod
     def _planned_device() -> Device:
         try:

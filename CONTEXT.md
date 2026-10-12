@@ -17,7 +17,7 @@ One timestamped span of a Transcript: a start time, an end time, and the words s
 _Avoid_: Line, chunk, caption
 
 **Job**:
-One attempt to turn a Recording into a Transcript, moving through importing, transcribing, done, or failed.
+One attempt to turn a Recording into a Transcript. It moves from extracting audio to transcribing, and ends as done, failed, or cancelled. A cancelled Job leaves no Transcript behind.
 _Avoid_: Task, run
 
 **Language Mode**:

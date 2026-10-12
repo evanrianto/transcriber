@@ -17,7 +17,7 @@ A small web app that runs on your own computer and turns a video or audio file i
   | Hardware | An hour of video takes roughly |
   | --- | --- |
   | NVIDIA GPU (e.g. RTX 4070) | 2–3 minutes (English/Indonesian), ~15 minutes (Mixed) |
-  | CPU only (incl. all Macs) | an hour or more |
+  | CPU only (incl. all Macs) | an hour or more (English/Indonesian); Mixed is several times slower still |
 
 ## Install
 
@@ -82,6 +82,8 @@ If the video's folder is read-only, the transcript is still shown, with **Copy**
 
 The app only listens on `localhost`, never on your network. That matters because it reads files directly from your disk by path instead of uploading them (see [ADR-0001](docs/adr/0001-import-recordings-by-path.md)). Don't change it to listen on other interfaces.
 
+It also refuses requests made by other websites open in your browser, so a malicious page can't use it to start transcriptions or read your files. Open it as `localhost` or `127.0.0.1`; other host names are refused.
+
 ## Development
 
 ```sh
@@ -97,6 +99,7 @@ Domain language is in [CONTEXT.md](CONTEXT.md); design decisions are in [docs/ad
 - **"No NVIDIA GPU is available" banner although you have one:** the app checks the GPU when it starts and falls back to the CPU if CUDA doesn't work. Update your NVIDIA driver and restart the app.
 - **The file dialog doesn't appear:** it may have opened behind the browser window. Check the taskbar, or paste the path instead.
 - **`make: command not found` on Windows right after installing:** open a new terminal.
+- **"Requests from other sites are refused":** open the app at <http://localhost:8765> rather than through another host name or proxy.
 
 ## License
 

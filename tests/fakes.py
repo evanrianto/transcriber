@@ -59,11 +59,16 @@ class FakeDialogs:
         self.choose = choose
         self.save_to = save_to
         self.suggested: str | None = None
+        self.fail_with: Exception | None = None
 
     def open_recording(self) -> Path | None:
+        if self.fail_with is not None:
+            raise self.fail_with
         return self.choose
 
     def save_transcript_as(self, suggested: Path) -> Path | None:
+        if self.fail_with is not None:
+            raise self.fail_with
         self.suggested = suggested.name
         return self.save_to
 

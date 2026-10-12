@@ -267,7 +267,6 @@ $("import-form").addEventListener("submit", async (event) => {
     showImportError(detail);
     return;
   }
-  checkDevice(); // the engine may have fallen back to the CPU while loading
   watchJob();
 });
 
@@ -310,9 +309,9 @@ $("save-as-button").addEventListener("click", async () => {
   button.disabled = true;
   try {
     const response = await fetch("/api/job/save-as", { method: "POST" });
-    const body = await response.json();
+    const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-      $("save-error").textContent = body.detail;
+      $("save-error").textContent = body.detail || "Couldn't open the save dialog.";
       return;
     }
     job = body.job;
@@ -323,15 +322,19 @@ $("save-as-button").addEventListener("click", async () => {
 });
 
 $("new-button").addEventListener("click", () => {
+  $("import-form").reset(); // back to an empty path and English
   showImportError("");
   showImportNote("");
   show("import");
 });
 
+// Until the model has loaded, a GPU that fails to load can still fall back to the CPU,
+// so keep checking until the device is final.
 async function checkDevice() {
   try {
-    const { device } = await (await fetch("/api/system")).json();
+    const { device, model_loaded } = await (await fetch("/api/system")).json();
     $("cpu-warning").hidden = device !== "cpu";
+    if (!model_loaded) setTimeout(checkDevice, 2000);
   } catch {
     // The warning is a nicety; never block the page on it.
   }

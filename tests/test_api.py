@@ -36,9 +36,14 @@ def manager() -> JobManager:
     return JobManager(FakeEngine(SEGMENTS), clock=lambda: datetime(2026, 10, 12, 14, 30, 5))
 
 
+def local_client(app: FastAPI) -> TestClient:
+    """A client that, like the page in the browser, talks to the app on localhost."""
+    return TestClient(app, base_url="http://localhost:8765")
+
+
 @pytest.fixture
 def client(manager: JobManager) -> TestClient:
-    return TestClient(create_app(manager, dialogs=FakeDialogs()))
+    return local_client(create_app(manager, dialogs=FakeDialogs()))
 
 
 def test_there_is_no_job_before_the_first_import(client: TestClient) -> None:
@@ -165,7 +170,7 @@ def test_the_event_stream_replays_a_finished_job_and_closes(
 def test_importing_while_a_job_runs_is_refused(recording: Path) -> None:
     engine = SteppedEngine(SEGMENTS)
     manager = JobManager(engine)
-    client = TestClient(create_app(manager, dialogs=FakeDialogs()))
+    client = local_client(create_app(manager, dialogs=FakeDialogs()))
     client.post("/api/job", json={"path": str(recording)})
 
     response = client.post("/api/job", json={"path": str(recording)})
@@ -179,7 +184,7 @@ def test_importing_while_a_job_runs_is_refused(recording: Path) -> None:
 def test_a_running_job_can_be_cancelled(recording: Path) -> None:
     engine = SteppedEngine(SEGMENTS)
     manager = JobManager(engine)
-    client = TestClient(create_app(manager, dialogs=FakeDialogs()))
+    client = local_client(create_app(manager, dialogs=FakeDialogs()))
     client.post("/api/job", json={"path": str(recording)})
 
     response = client.post("/api/job/cancel")
@@ -193,7 +198,7 @@ def test_a_running_job_can_be_cancelled(recording: Path) -> None:
 
 def test_choose_file_returns_the_path_picked_in_the_os_dialog(manager: JobManager) -> None:
     picked = Path("D:/Videos/meeting.mp4")
-    client = TestClient(create_app(manager, dialogs=FakeDialogs(choose=picked)))
+    client = local_client(create_app(manager, dialogs=FakeDialogs(choose=picked)))
 
     response = client.post("/api/dialog/open")
 
@@ -202,7 +207,7 @@ def test_choose_file_returns_the_path_picked_in_the_os_dialog(manager: JobManage
 
 
 def test_closing_the_os_dialog_without_choosing_returns_no_path(manager: JobManager) -> None:
-    client = TestClient(create_app(manager, dialogs=FakeDialogs(choose=None)))
+    client = local_client(create_app(manager, dialogs=FakeDialogs(choose=None)))
 
     assert client.post("/api/dialog/open").json() == {"path": None}
 
@@ -248,7 +253,7 @@ def test_there_is_nothing_to_play_before_the_first_import(client: TestClient) ->
 def test_a_converted_preview_is_played_instead_of_the_original(recording: Path) -> None:
     previewer = FakePreviewer(needed=True)
     manager = JobManager(FakeEngine(SEGMENTS), previewer=previewer)
-    client = TestClient(create_app(manager, dialogs=FakeDialogs()))
+    client = local_client(create_app(manager, dialogs=FakeDialogs()))
     client.post("/api/job", json={"path": str(recording)})
     manager.wait(timeout=5)
 
@@ -285,7 +290,7 @@ def test_save_as_asks_where_to_save_with_the_usual_name_and_saves_there(
     chosen = tmp_path / "chosen.txt"
     dialogs = FakeDialogs(save_to=chosen)
     manager = JobManager(FakeEngine(SEGMENTS), clock=lambda: datetime(2026, 10, 12, 14, 30, 5))
-    client = TestClient(create_app(manager, dialogs=dialogs))
+    client = local_client(create_app(manager, dialogs=dialogs))
     client.post("/api/job", json={"path": str(recording)})
     manager.wait(timeout=5)
 
@@ -313,6 +318,79 @@ def test_closing_the_save_dialog_saves_nothing(
 def test_the_page_can_tell_whether_transcription_runs_on_the_gpu_or_the_cpu(
     manager: JobManager,
 ) -> None:
-    client = TestClient(create_app(manager, dialogs=FakeDialogs(), device=lambda: "cpu"))
+    loaded = False
+    client = local_client(
+        create_app(
+            manager, dialogs=FakeDialogs(), device=lambda: "cpu", model_loaded=lambda: loaded
+        )
+    )
 
-    assert client.get("/api/system").json() == {"device": "cpu"}
+    # Until the model has loaded, the device may still change (a broken GPU falls back to CPU).
+    assert client.get("/api/system").json() == {"device": "cpu", "model_loaded": False}
+    loaded = True
+    assert client.get("/api/system").json() == {"device": "cpu", "model_loaded": True}
+
+
+def test_a_failing_os_dialog_is_reported_as_a_readable_error(
+    manager: JobManager, recording: Path
+) -> None:
+    dialogs = FakeDialogs()
+    dialogs.fail_with = RuntimeError("The file dialog failed: no display")
+    client = local_client(create_app(manager, dialogs=dialogs))
+    client.post("/api/job", json={"path": str(recording)})
+    manager.wait(timeout=5)
+
+    for route in ("/api/dialog/open", "/api/job/save-as"):
+        response = client.post(route)
+        assert response.status_code == 500
+        assert response.json() == {"detail": "The file dialog failed: no display"}
+
+
+# Other web pages open in the same browser must not be able to drive the app: it reads any
+# path on disk (ADR-0001). These are the requests a hostile page could make.
+
+
+def test_requests_for_another_host_name_are_refused(client: TestClient) -> None:
+    # DNS rebinding: evil.example re-resolved to 127.0.0.1 still sends its own Host.
+    response = client.get("/api/job", headers={"Host": "evil.example:8765"})
+
+    assert response.status_code == 403
+
+
+def test_requests_sent_from_another_site_are_refused(
+    client: TestClient, recording: Path
+) -> None:
+    from_other_site = client.post(
+        "/api/job", json={"path": str(recording)}, headers={"Origin": "https://evil.example"}
+    )
+    from_other_local_app = client.post(
+        "/api/job/cancel", headers={"Origin": "http://localhost:3000"}
+    )
+    embedded_by_other_site = client.get(
+        "/api/job/media", headers={"Sec-Fetch-Site": "cross-site"}
+    )
+
+    assert from_other_site.status_code == 403
+    assert from_other_local_app.status_code == 403
+    assert embedded_by_other_site.status_code == 403
+
+
+def test_the_apps_own_page_is_allowed(
+    client: TestClient, manager: JobManager, recording: Path
+) -> None:
+    opened = client.get("/", headers={"Sec-Fetch-Site": "none"})  # typed into the address bar
+    linked = client.get(  # a link or bookmark elsewhere opens the app
+        "/", headers={"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate"}
+    )
+    imported = client.post(
+        "/api/job",
+        json={"path": str(recording)},
+        headers={"Origin": "http://localhost:8765", "Sec-Fetch-Site": "same-origin"},
+    )
+    manager.wait(timeout=5)
+    via_ip = client.get("/api/job", headers={"Host": "127.0.0.1:8765"})
+
+    assert opened.status_code == 200
+    assert linked.status_code == 200
+    assert imported.status_code == 201
+    assert via_ip.status_code == 200

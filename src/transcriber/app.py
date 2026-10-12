@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -97,20 +104,54 @@ async def job_events(manager: JobManager, request: Request) -> AsyncIterator[str
         await asyncio.sleep(EVENT_POLL_SECONDS)
 
 
+LOCAL_HOST_NAMES = {"localhost", "127.0.0.1", "::1"}
+
+
+def is_from_this_apps_page(method: str, headers: Mapping[str, str]) -> bool:
+    """Whether a request comes from the app's own page (or the address bar), not from some
+    other web page open in the same browser.
+
+    Listening on localhost keeps the network out, but not other sites: through DNS
+    rebinding (a hostile domain re-resolved to 127.0.0.1) or plain cross-site requests,
+    a web page could otherwise start Jobs on any path and read files back (ADR-0001).
+    """
+    host = headers.get("host", "")
+    if urlsplit(f"//{host}").hostname not in LOCAL_HOST_NAMES:
+        return False
+    origin = headers.get("origin")
+    if origin is not None and urlsplit(origin).netloc != host:
+        return False
+    if method == "GET" and headers.get("sec-fetch-mode") == "navigate":
+        return True  # opening the app from a link or bookmark: the other site sees nothing
+    return headers.get("sec-fetch-site", "same-origin") in ("same-origin", "none")
+
+
 def clean_path(raw: str) -> Path:
     """Accept paths as users paste them, including Windows "Copy as path" quotes."""
     return Path(raw.strip().strip('"').strip("'"))
 
 
 def create_app(
-    manager: JobManager, dialogs: Dialogs, device: Callable[[], str] = lambda: "cuda"
+    manager: JobManager,
+    dialogs: Dialogs,
+    device: Callable[[], str] = lambda: "cuda",
+    model_loaded: Callable[[], bool] = lambda: True,
 ) -> FastAPI:
-    """`device` reports where Whisper runs ("cuda" or "cpu") so the page can warn on CPU."""
+    """`device` reports where Whisper runs ("cuda" or "cpu") so the page can warn on CPU;
+    it is only final once `model_loaded`, since a GPU that fails to load falls back to CPU."""
     app = FastAPI(title="Transcriber")
+
+    @app.middleware("http")
+    async def only_this_apps_page(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        if not is_from_this_apps_page(request.method, request.headers):
+            return JSONResponse({"detail": "Requests from other sites are refused"}, 403)
+        return await call_next(request)
 
     @app.get("/api/system")
     def system() -> dict[str, Any]:
-        return {"device": device()}
+        return {"device": device(), "model_loaded": model_loaded()}
 
     @app.get("/api/job")
     def get_job() -> dict[str, Any]:
@@ -137,7 +178,10 @@ def create_app(
     @app.post("/api/dialog/open")
     def choose_recording() -> dict[str, Any]:
         """Open the OS file dialog on this machine; blocks until the user closes it."""
-        chosen = dialogs.open_recording()
+        try:
+            chosen = dialogs.open_recording()
+        except RuntimeError as error:
+            raise HTTPException(status_code=500, detail=str(error)) from error
         return {"path": str(chosen) if chosen else None}
 
     @app.get("/api/job/transcript")
@@ -159,6 +203,8 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(error)) from error
         except OSError as error:
             raise HTTPException(status_code=400, detail=f"Couldn't save there: {error}") from error
+        except RuntimeError as error:  # the dialog itself failed
+            raise HTTPException(status_code=500, detail=str(error)) from error
         return {"job": job_json(manager.current())}
 
     @app.get("/api/job/media")
