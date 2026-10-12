@@ -13,7 +13,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.fakes import FakeEngine, SteppedEngine
+from tests.fakes import FakeDialogs, FakeEngine, SteppedEngine
 from transcriber.app import create_app
 from transcriber.jobs import JobManager
 from transcriber.transcript import Segment
@@ -189,3 +189,19 @@ def test_a_running_job_can_be_cancelled(recording: Path) -> None:
     assert response.status_code == 200
     assert client.get("/api/job").json()["job"]["state"] == "cancelled"
     assert client.post("/api/job/cancel").status_code == 409
+
+
+def test_choose_file_returns_the_path_picked_in_the_os_dialog(manager: JobManager) -> None:
+    picked = Path("D:/Videos/meeting.mp4")
+    client = TestClient(create_app(manager, dialogs=FakeDialogs(choose=picked)))
+
+    response = client.post("/api/dialog/open")
+
+    assert response.status_code == 200
+    assert response.json() == {"path": str(picked)}
+
+
+def test_closing_the_os_dialog_without_choosing_returns_no_path(manager: JobManager) -> None:
+    client = TestClient(create_app(manager, dialogs=FakeDialogs(choose=None)))
+
+    assert client.post("/api/dialog/open").json() == {"path": None}

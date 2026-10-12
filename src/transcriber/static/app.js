@@ -151,6 +151,25 @@ $("import-form").addEventListener("submit", async (event) => {
   watchJob();
 });
 
+$("choose-button").addEventListener("click", async () => {
+  const button = $("choose-button");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/dialog/open", { method: "POST" });
+    if (!response.ok) {
+      showImportError("Couldn't open the file dialog. Paste the path instead.");
+      return;
+    }
+    const { path } = await response.json();
+    if (path) {
+      $("path-input").value = path;
+      showImportError("");
+    }
+  } finally {
+    button.disabled = false;
+  }
+});
+
 $("cancel-button").addEventListener("click", async () => {
   cancelling = true;
   renderProgress();

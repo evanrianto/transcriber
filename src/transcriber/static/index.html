@@ -19,10 +19,13 @@
         <p id="import-note" class="note warning" hidden></p>
 
         <form id="import-form" class="import-form" autocomplete="off">
-          <label class="field">
-            <span class="field-label">Recording</span>
-            <input id="path-input" type="text" placeholder="C:\Videos\meeting.mp4" spellcheck="false" required />
-          </label>
+          <div class="field">
+            <label class="field-label" for="path-input">Recording</label>
+            <div class="field-row">
+              <input id="path-input" type="text" placeholder="Choose a file, or paste its path" spellcheck="false" required />
+              <button type="button" class="button" id="choose-button">Choose file…</button>
+            </div>
+          </div>
 
           <div class="form-actions">
             <button type="submit" class="button primary" id="start-button">Transcribe</button>

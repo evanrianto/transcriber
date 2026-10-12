@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from transcriber.dialogs import Dialogs, NativeDialogs
 from transcriber.jobs import Job, JobAlreadyRunning, JobManager, NoJobRunning, RecordingNotFound
 from transcriber.transcript import Segment
 
@@ -88,8 +89,9 @@ def clean_path(raw: str) -> Path:
     return Path(raw.strip().strip('"').strip("'"))
 
 
-def create_app(manager: JobManager) -> FastAPI:
+def create_app(manager: JobManager, dialogs: Dialogs | None = None) -> FastAPI:
     app = FastAPI(title="Transcriber")
+    os_dialogs = dialogs if dialogs is not None else NativeDialogs()
 
     @app.get("/api/job")
     def get_job() -> dict[str, Any]:
@@ -112,6 +114,12 @@ def create_app(manager: JobManager) -> FastAPI:
         except NoJobRunning as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return {"job": job_json(manager.current())}
+
+    @app.post("/api/dialog/open")
+    def choose_recording() -> dict[str, Any]:
+        """Open the OS file dialog on this machine; blocks until the user closes it."""
+        chosen = os_dialogs.open_recording()
+        return {"path": str(chosen) if chosen else None}
 
     @app.get("/api/job/events")
     def stream_job_events(request: Request) -> StreamingResponse:

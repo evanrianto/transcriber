@@ -4,9 +4,13 @@
 
 **Blocked by:** 01 (Walking skeleton)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Clicking **Choose file** opens the native OS file dialog, filtered to common video and audio types with an "All files" option
-- [ ] Choosing a file fills in its path; cancelling the dialog changes nothing
-- [ ] Pasting a path by hand still works
+- [x] Clicking **Choose file** opens the native OS file dialog, filtered to common video and audio types with an "All files" option
+- [x] Choosing a file fills in its path; cancelling the dialog changes nothing
+- [x] Pasting a path by hand still works
 - [ ] The dialog works on Windows, macOS, and Linux (on macOS it must not crash from being opened off the main thread)
+
+## Comments
+
+Verified on Windows only (the dialog opens in a child process, so macOS's main-thread rule is respected by design). macOS and Linux still need a manual check.

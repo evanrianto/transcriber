@@ -46,3 +46,13 @@ class SteppedEngine:
         for segment in self.segments:
             self._steps.acquire()
             yield segment
+
+
+class FakeDialogs:
+    """Stands in for the native OS file dialogs."""
+
+    def __init__(self, choose: Path | None = None) -> None:
+        self.choose = choose
+
+    def open_recording(self) -> Path | None:
+        return self.choose
