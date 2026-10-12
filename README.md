@@ -51,6 +51,16 @@ From this folder:
 make install
 ```
 
+`make install` detects your OS. You can also name it explicitly:
+
+| OS | Command | Transcribes on |
+| --- | --- | --- |
+| Windows | `make install-windows` | NVIDIA GPU if present, otherwise CPU |
+| macOS | `make install-macos` | CPU |
+| Linux | `make install-linux` | NVIDIA GPU if present, otherwise CPU |
+
+At the end it tells you whether transcription will run on the GPU or the CPU. `make help` lists all the commands.
+
 This installs [uv](https://docs.astral.sh/uv/) if you don't have it, then Python 3.12, the dependencies (including the NVIDIA CUDA libraries on Windows and Linux, and ffmpeg), and downloads the Whisper model. The first run takes a while: there are about 4 GB to download.
 
 You don't need to install CUDA or ffmpeg yourself; they come from Python packages.

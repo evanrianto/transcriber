@@ -142,3 +142,7 @@ def download_model_cli() -> None:
     print(f"Downloading Whisper {MODEL_NAME} (about 3 GB, skipped if already downloaded)...")
     path = download_model(MODEL_NAME)
     print(f"Model ready: {path}")
+    if WhisperEngine._planned_device().name == "cuda":
+        print("NVIDIA GPU found: transcription will run on the GPU.")
+    else:
+        print("No NVIDIA GPU found: transcription will run on the CPU, which is much slower.")
