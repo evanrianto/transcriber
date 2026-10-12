@@ -223,3 +223,23 @@ def test_an_unknown_language_mode_is_rejected(client: TestClient, recording: Pat
     response = client.post("/api/job", json={"path": str(recording), "language_mode": "auto"})
 
     assert response.status_code == 422
+
+
+def test_the_recording_is_streamed_for_playback_with_seek_support(
+    client: TestClient, manager: JobManager, recording: Path
+) -> None:
+    client.post("/api/job", json={"path": str(recording)})
+    manager.wait(timeout=5)
+
+    whole = client.get("/api/job/media")
+    part = client.get("/api/job/media", headers={"Range": "bytes=4-9"})
+
+    assert whole.status_code == 200
+    assert whole.content == b"not really a video"
+    assert whole.headers["accept-ranges"] == "bytes"
+    assert part.status_code == 206
+    assert part.content == b"really"
+
+
+def test_there_is_nothing_to_play_before_the_first_import(client: TestClient) -> None:
+    assert client.get("/api/job/media").status_code == 404

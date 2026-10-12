@@ -124,6 +124,15 @@ def create_app(manager: JobManager, dialogs: Dialogs | None = None) -> FastAPI:
         chosen = os_dialogs.open_recording()
         return {"path": str(chosen) if chosen else None}
 
+    @app.get("/api/job/media")
+    def play_recording() -> FileResponse:
+        """The current Recording, streamed from its original path. FileResponse honours
+        Range requests, so the player can seek anywhere in an hour-long video."""
+        job = manager.current()
+        if job is None:
+            raise HTTPException(status_code=404, detail="No Recording to play")
+        return FileResponse(job.recording)
+
     @app.get("/api/job/events")
     def stream_job_events(request: Request) -> StreamingResponse:
         return StreamingResponse(job_events(manager, request), media_type="text/event-stream")

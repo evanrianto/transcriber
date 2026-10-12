@@ -20,6 +20,8 @@ let cancelling = false;
 
 function show(name) {
   for (const [key, el] of Object.entries(views)) el.hidden = key !== name;
+  document.querySelector(".page").classList.toggle("wide", name === "result");
+  if (name !== "result") $("player").pause();
 }
 
 function formatTimestamp(seconds) {
@@ -37,11 +39,16 @@ function formatEta(seconds) {
   return `about ${minutes} minute${minutes === 1 ? "" : "s"} left`;
 }
 
-function segmentItem(segment) {
+function segmentItem(segment, index, seekable = false) {
   const li = document.createElement("li");
   li.className = "segment";
-  const time = document.createElement("span");
+  const time = document.createElement(seekable ? "button" : "span");
   time.className = "segment-time";
+  if (seekable) {
+    time.type = "button";
+    time.dataset.index = String(index);
+    time.title = "Play from here";
+  }
   time.textContent = formatTimestamp(segment.start);
   const text = document.createElement("p");
   text.className = "segment-text";
@@ -54,7 +61,7 @@ function appendLiveSegments(newSegments, replace) {
   const list = $("live-segments");
   const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
   if (replace) list.replaceChildren();
-  list.append(...newSegments.map(segmentItem));
+  list.append(...newSegments.map((segment, i) => segmentItem(segment, i)));
   if (nearBottom) list.scrollTop = list.scrollHeight;
 }
 
@@ -88,7 +95,82 @@ function renderProgress() {
 function renderResult() {
   $("result-recording").textContent = describeJob();
   $("saved-note").textContent = `Saved to ${job.saved_to}`;
-  $("result-segments").replaceChildren(...segments.map(segmentItem));
+  $("result-segments").replaceChildren(...segments.map((s, i) => segmentItem(s, i, true)));
+  currentIndex = -1;
+  loadPlayer();
+}
+
+// Result player: the video plays beside the Transcript; timestamps seek, and the
+// Segment being played is highlighted and kept in view.
+
+let playerJobId = null;
+let currentIndex = -1;
+let userScrolledAt = 0;
+
+function loadPlayer() {
+  if (playerJobId === job.id) return;
+  playerJobId = job.id;
+  const player = $("player");
+  player.classList.remove("audio-only");
+  setPlayerNote("");
+  player.src = `/api/job/media?job=${job.id}`;
+}
+
+function setPlayerNote(message) {
+  $("player-note").textContent = message;
+  $("player-note").hidden = !message;
+  $("player").hidden = Boolean(message);
+}
+
+function segmentIndexAt(time) {
+  // Binary search for the last Segment starting at or before `time`.
+  let low = 0;
+  let high = segments.length - 1;
+  let found = -1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (segments[mid].start <= time) {
+      found = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return found;
+}
+
+function highlightSegment(index) {
+  if (index === currentIndex) return;
+  const items = $("result-segments").children;
+  items[currentIndex]?.classList.remove("current");
+  currentIndex = index;
+  const item = items[index];
+  if (!item) return;
+  item.classList.add("current");
+  // Don't fight someone scrolling the Transcript themselves.
+  if (Date.now() - userScrolledAt > 4000) item.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+$("player").addEventListener("timeupdate", () => highlightSegment(segmentIndexAt($("player").currentTime)));
+
+$("player").addEventListener("loadedmetadata", () => {
+  $("player").classList.toggle("audio-only", $("player").videoWidth === 0);
+});
+
+$("player").addEventListener("error", () => {
+  setPlayerNote("This format can't be previewed in the browser.");
+});
+
+$("result-segments").addEventListener("click", (event) => {
+  const button = event.target.closest("button.segment-time");
+  if (!button) return;
+  const player = $("player");
+  player.currentTime = segments[Number(button.dataset.index)].start;
+  player.play();
+});
+
+for (const type of ["wheel", "touchmove", "keydown"]) {
+  $("transcript-card").addEventListener(type, () => (userScrolledAt = Date.now()), { passive: true });
 }
 
 function render() {

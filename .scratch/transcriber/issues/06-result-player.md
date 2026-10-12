@@ -4,10 +4,14 @@
 
 **Blocked by:** 01 (Walking skeleton)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] For a browser-playable Recording (e.g. MP4/H.264, WebM, common audio), the result screen shows a player next to the Transcript
-- [ ] The server streams the Recording with seek support (HTTP range requests), so jumping deep into an hour-long video is instant
-- [ ] Clicking a Segment's timestamp seeks the player to that Segment's start
-- [ ] The Segment being played is highlighted, and the Transcript auto-scrolls to keep it visible (without fighting a user who is scrolling manually)
-- [ ] On narrow windows the player and Transcript stack vertically
+- [x] For a browser-playable Recording (e.g. MP4/H.264, WebM, common audio), the result screen shows a player next to the Transcript
+- [x] The server streams the Recording with seek support (HTTP range requests), so jumping deep into an hour-long video is instant
+- [x] Clicking a Segment's timestamp seeks the player to that Segment's start
+- [x] The Segment being played is highlighted, and the Transcript auto-scrolls to keep it visible (without fighting a user who is scrolling manually)
+- [x] On narrow windows the player and Transcript stack vertically
+
+## Comments
+
+Verified: Range streaming (206), click-to-seek, Segment highlighting logic. The automation browser window was hidden, so Chrome didn't decode the video; actual on-screen playback and the narrow-window stacking still need a quick manual look.

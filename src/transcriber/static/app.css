@@ -67,6 +67,7 @@ body {
 
 .page {
   max-width: 760px;
+  transition: max-width 0.2s ease;
   margin: 0 auto;
   padding: 24px 20px 64px;
 }
@@ -371,4 +372,90 @@ input[type="text"] {
   overflow-y: auto;
   overflow-x: hidden;
   padding-inline: 8px;
+}
+
+/* Result: player beside the Transcript */
+
+.page.wide {
+  max-width: 1240px;
+}
+
+.result-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.player-pane {
+  position: sticky;
+  top: 20px;
+}
+
+#player {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  background: #000;
+  border-radius: var(--radius);
+}
+
+#player.audio-only {
+  background: transparent;
+  height: 54px;
+}
+
+.player-note {
+  margin: 0;
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.transcript-card {
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+}
+
+.result-layout.no-player {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.result-layout.no-player .transcript-card {
+  max-height: none;
+}
+
+button.segment-time {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+button.segment-time:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.segment.current {
+  background: var(--accent-soft);
+}
+
+.segment.current .segment-time {
+  color: var(--accent);
+}
+
+@media (max-width: 860px) {
+  .result-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .player-pane {
+    position: static;
+  }
+
+  .transcript-card {
+    max-height: none;
+  }
 }

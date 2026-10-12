@@ -76,8 +76,14 @@
           <button type="button" class="button" id="new-button">New transcription</button>
         </div>
         <p id="saved-note" class="note success"></p>
-        <div class="card transcript-card">
-          <ol id="result-segments" class="segments"></ol>
+        <div class="result-layout">
+          <div class="player-pane" id="player-pane">
+            <video id="player" controls preload="metadata"></video>
+            <p id="player-note" class="player-note" hidden></p>
+          </div>
+          <div class="card transcript-card" id="transcript-card">
+            <ol id="result-segments" class="segments"></ol>
+          </div>
         </div>
       </section>
     </main>
