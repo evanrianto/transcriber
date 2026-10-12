@@ -212,6 +212,10 @@ input[type="text"] {
   color: var(--warning);
 }
 
+#import-note {
+  margin-bottom: 20px;
+}
+
 /* Job and result */
 
 .job-header,

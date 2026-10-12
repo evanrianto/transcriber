@@ -160,3 +160,32 @@ def test_the_event_stream_replays_a_finished_job_and_closes(
     assert events[0]["job"]["state"] == "done"
     assert events[0]["segments_from"] == 0
     assert len(events[0]["new_segments"]) == 2
+
+
+def test_importing_while_a_job_runs_is_refused(recording: Path) -> None:
+    engine = SteppedEngine(SEGMENTS)
+    manager = JobManager(engine)
+    client = TestClient(create_app(manager))
+    client.post("/api/job", json={"path": str(recording)})
+
+    response = client.post("/api/job", json={"path": str(recording)})
+
+    assert response.status_code == 409
+    assert "already running" in response.json()["detail"]
+    engine.step(len(SEGMENTS))
+    manager.wait(timeout=5)
+
+
+def test_a_running_job_can_be_cancelled(recording: Path) -> None:
+    engine = SteppedEngine(SEGMENTS)
+    manager = JobManager(engine)
+    client = TestClient(create_app(manager))
+    client.post("/api/job", json={"path": str(recording)})
+
+    response = client.post("/api/job/cancel")
+    engine.step(len(SEGMENTS))
+    manager.wait(timeout=5)
+
+    assert response.status_code == 200
+    assert client.get("/api/job").json()["job"]["state"] == "cancelled"
+    assert client.post("/api/job/cancel").status_code == 409

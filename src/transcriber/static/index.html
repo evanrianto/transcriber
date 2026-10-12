@@ -16,6 +16,7 @@
       <section id="import-view" class="card" hidden>
         <h1>Transcribe a recording</h1>
         <p class="muted">Pick a video or audio file on this computer. The transcript is saved next to it.</p>
+        <p id="import-note" class="note warning" hidden></p>
 
         <form id="import-form" class="import-form" autocomplete="off">
           <label class="field">
@@ -37,6 +38,7 @@
             <p class="eyebrow" id="job-recording"></p>
             <h1 id="job-title">Transcribing</h1>
           </div>
+          <button type="button" class="button" id="cancel-button">Cancel</button>
         </div>
 
         <ol class="stages" aria-label="Progress">

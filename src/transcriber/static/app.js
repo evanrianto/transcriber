@@ -10,10 +10,12 @@ const views = {
 };
 
 const STAGES = ["extracting_audio", "transcribing"];
+const FINISHED = ["done", "failed", "cancelled"];
 
 let events = null;
 let job = null;
 let segments = [];
+let cancelling = false;
 
 function show(name) {
   for (const [key, el] of Object.entries(views)) el.hidden = key !== name;
@@ -64,6 +66,10 @@ function renderProgress() {
     el.classList.toggle("complete", index < stageIndex);
   }
 
+  const cancel = $("cancel-button");
+  cancel.disabled = cancelling;
+  cancel.textContent = cancelling ? "Cancelling…" : "Cancel";
+
   const transcribing = job.state === "transcribing";
   $("job-title").textContent = transcribing ? "Transcribing" : "Extracting audio";
   const started = transcribing && segments.length > 0;
@@ -89,10 +95,19 @@ function render() {
   } else if (job.state === "failed") {
     showImportError(`Couldn't transcribe ${job.recording_name}: ${job.error}`);
     show("import");
+  } else if (job.state === "cancelled") {
+    showImportNote(`Cancelled ${job.recording_name}. Nothing was saved.`);
+    show("import");
   } else {
     renderProgress();
     show("job");
   }
+}
+
+function showImportNote(message) {
+  const el = $("import-note");
+  el.textContent = message;
+  el.hidden = !message;
 }
 
 function showImportError(message) {
@@ -109,18 +124,20 @@ function watchJob() {
     job = update.job;
     const replace = update.segments_from === 0;
     segments = replace ? update.new_segments : segments.concat(update.new_segments);
-    if (job && !["done", "failed"].includes(job.state)) {
+    if (job && !FINISHED.includes(job.state)) {
       appendLiveSegments(update.new_segments, replace);
     }
     render();
     // The server closes the stream once the Job is finished; don't let EventSource reconnect.
-    if (!job || job.state === "done" || job.state === "failed") events.close();
+    if (!job || FINISHED.includes(job.state)) events.close();
   };
 }
 
 $("import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   showImportError("");
+  showImportNote("");
+  cancelling = false;
   const response = await fetch("/api/job", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -134,8 +151,16 @@ $("import-form").addEventListener("submit", async (event) => {
   watchJob();
 });
 
+$("cancel-button").addEventListener("click", async () => {
+  cancelling = true;
+  renderProgress();
+  const response = await fetch("/api/job/cancel", { method: "POST" });
+  if (!response.ok) cancelling = false; // already finished; the event stream shows the outcome
+});
+
 $("new-button").addEventListener("click", () => {
   showImportError("");
+  showImportNote("");
   show("import");
 });
 

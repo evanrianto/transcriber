@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 
 from tests.fakes import FakeEngine, SteppedEngine
-from transcriber.jobs import JobManager, JobState, RecordingNotFound
+from transcriber.jobs import (
+    JobAlreadyRunning,
+    JobManager,
+    JobState,
+    NoJobRunning,
+    RecordingNotFound,
+)
 from transcriber.transcript import Segment
 
 SEGMENTS = [
@@ -119,3 +125,46 @@ def test_progress_tracks_how_far_through_the_recording_transcription_has_reached
 
     engine.step()
     manager.wait(timeout=5)
+
+
+def test_only_one_job_runs_at_a_time(recording: Path) -> None:
+    engine = SteppedEngine(SEGMENTS)
+    manager = JobManager(engine, clock=fixed_clock)
+    manager.start(recording)
+
+    with pytest.raises(JobAlreadyRunning):
+        manager.start(recording)
+
+    engine.step(len(SEGMENTS))
+    manager.wait(timeout=5)
+    manager.start(recording)  # allowed again once the first Job is finished
+    engine.step(len(SEGMENTS))
+    manager.wait(timeout=5)
+    assert manager.current().state is JobState.DONE  # type: ignore[union-attr]
+
+
+def test_cancelling_stops_the_job_and_writes_nothing(recording: Path) -> None:
+    engine = SteppedEngine(SEGMENTS)
+    manager = JobManager(engine, clock=fixed_clock)
+    manager.start(recording)
+    engine.step()
+    wait_for(lambda: len(manager.current().segments) == 1)  # type: ignore[union-attr]
+
+    manager.cancel()
+    engine.step()  # unblock the engine so the worker can notice
+    manager.wait(timeout=5)
+
+    job = manager.current()
+    assert job is not None
+    assert job.state is JobState.CANCELLED
+    assert list(recording.parent.glob("*.txt")) == []
+    manager.start(recording)  # importing is available again
+    engine.step(len(SEGMENTS))
+    manager.wait(timeout=5)
+
+
+def test_cancelling_when_nothing_is_running_is_an_error(recording: Path) -> None:
+    manager = JobManager(FakeEngine(SEGMENTS), clock=fixed_clock)
+
+    with pytest.raises(NoJobRunning):
+        manager.cancel()

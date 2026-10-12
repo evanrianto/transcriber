@@ -4,10 +4,10 @@
 
 **Blocked by:** 02 (Live progress)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] While a Job is running, importing is disabled in the UI, and the server rejects a second Job even if the UI is bypassed
-- [ ] A Cancel button stops the running Job promptly. A cancelled Job writes no `.txt`, and importing becomes available again
-- [ ] Refreshing or reopening the page during a Job reconnects to it: current stage, progress, and all Segments produced so far are shown, and live updates continue
-- [ ] After a Job finishes, refreshing shows the last result until the next import
-- [ ] Automated tests cover the Job states (importing → transcribing → done / failed / cancelled) and the single-Job rule
+- [x] While a Job is running, importing is disabled in the UI, and the server rejects a second Job even if the UI is bypassed
+- [x] A Cancel button stops the running Job promptly. A cancelled Job writes no `.txt`, and importing becomes available again
+- [x] Refreshing or reopening the page during a Job reconnects to it: current stage, progress, and all Segments produced so far are shown, and live updates continue
+- [x] After a Job finishes, refreshing shows the last result until the next import
+- [x] Automated tests cover the Job states (importing → transcribing → done / failed / cancelled) and the single-Job rule

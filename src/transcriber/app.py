@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from transcriber.jobs import Job, JobManager, RecordingNotFound
+from transcriber.jobs import Job, JobAlreadyRunning, JobManager, NoJobRunning, RecordingNotFound
 from transcriber.transcript import Segment
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -101,7 +101,17 @@ def create_app(manager: JobManager) -> FastAPI:
             job = manager.start(clean_path(request.path))
         except RecordingNotFound as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        except JobAlreadyRunning as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         return {"job": job_json(job)}
+
+    @app.post("/api/job/cancel")
+    def cancel_job() -> dict[str, Any]:
+        try:
+            manager.cancel()
+        except NoJobRunning as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {"job": job_json(manager.current())}
 
     @app.get("/api/job/events")
     def stream_job_events(request: Request) -> StreamingResponse:

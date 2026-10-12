@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -27,7 +27,7 @@ class AudioClip:
 class Engine(Protocol):
     def extract_audio(self, recording: Path) -> AudioClip: ...
 
-    def transcribe(self, audio: AudioClip) -> Iterator[Segment]: ...
+    def transcribe(self, audio: AudioClip) -> Generator[Segment]: ...
 
 
 class WhisperEngine:
@@ -79,7 +79,7 @@ class WhisperEngine:
         samples = decode_audio(str(recording), sampling_rate=sampling_rate)
         return AudioClip(samples=samples, duration=len(samples) / sampling_rate)
 
-    def transcribe(self, audio: AudioClip) -> Iterator[Segment]:
+    def transcribe(self, audio: AudioClip) -> Generator[Segment]:
         model = self._ready_model()
         segments, _info = model.transcribe(
             audio.samples,

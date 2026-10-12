@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from pathlib import Path
 
 from transcriber.engine import AudioClip
@@ -23,7 +23,7 @@ class FakeEngine:
             raise self.fail_with
         return AudioClip(samples=None, duration=self.duration)
 
-    def transcribe(self, audio: AudioClip) -> Iterator[Segment]:
+    def transcribe(self, audio: AudioClip) -> Generator[Segment]:
         yield from self.segments
 
 
@@ -42,7 +42,7 @@ class SteppedEngine:
     def extract_audio(self, recording: Path) -> AudioClip:
         return AudioClip(samples=None, duration=self.duration)
 
-    def transcribe(self, audio: AudioClip) -> Iterator[Segment]:
+    def transcribe(self, audio: AudioClip) -> Generator[Segment]:
         for segment in self.segments:
             self._steps.acquire()
             yield segment
