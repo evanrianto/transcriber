@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Transcriber</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="wordmark">Transcriber</span>
+    </header>
+
+    <main class="page">
+      <!-- Import: choose a Recording -->
+      <section id="import-view" class="card" hidden>
+        <h1>Transcribe a recording</h1>
+        <p class="muted">Pick a video or audio file on this computer. The transcript is saved next to it.</p>
+
+        <form id="import-form" class="import-form" autocomplete="off">
+          <label class="field">
+            <span class="field-label">Recording</span>
+            <input id="path-input" type="text" placeholder="C:\Videos\meeting.mp4" spellcheck="false" required />
+          </label>
+
+          <div class="form-actions">
+            <button type="submit" class="button primary" id="start-button">Transcribe</button>
+          </div>
+          <p id="import-error" class="error" role="alert" hidden></p>
+        </form>
+      </section>
+
+      <!-- Job in progress -->
+      <section id="job-view" class="card" hidden>
+        <div class="job-header">
+          <div>
+            <p class="eyebrow" id="job-recording"></p>
+            <h1 id="job-title">Transcribing</h1>
+          </div>
+        </div>
+
+        <ol class="stages" aria-label="Progress">
+          <li class="stage" data-stage="extracting_audio">Extracting audio</li>
+          <li class="stage" data-stage="transcribing">Transcribing</li>
+        </ol>
+
+        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="progress">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <p class="progress-meta"><span id="progress-percent"></span><span id="progress-eta"></span></p>
+
+        <ol id="live-segments" class="segments live"></ol>
+      </section>
+
+      <!-- Result -->
+      <section id="result-view" hidden>
+        <div class="result-header">
+          <div>
+            <p class="eyebrow" id="result-recording"></p>
+            <h1>Transcript</h1>
+          </div>
+          <button type="button" class="button" id="new-button">New transcription</button>
+        </div>
+        <p id="saved-note" class="note success"></p>
+        <div class="card transcript-card">
+          <ol id="result-segments" class="segments"></ol>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
