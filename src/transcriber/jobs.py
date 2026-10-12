@@ -14,6 +14,7 @@ from pathlib import Path
 
 from transcriber.engine import Engine
 from transcriber.transcript import Segment, render_transcript, transcript_path_for
+from transcriber.whisper_options import LanguageMode
 
 
 class JobState(StrEnum):
@@ -44,6 +45,7 @@ class NoJobRunning(Exception):
 class Job:
     id: str
     recording: Path
+    language_mode: LanguageMode
     state: JobState
     segments: list[Segment] = field(default_factory=list)
     duration: float | None = None
@@ -88,11 +90,16 @@ class JobManager:
                 return None
             return dataclasses.replace(self._job, segments=list(self._job.segments))
 
-    def start(self, recording: Path) -> Job:
+    def start(self, recording: Path, language_mode: LanguageMode = LanguageMode.ENGLISH) -> Job:
         """Start transcribing `recording`. Only one Job runs at a time; there is no queue."""
         if not recording.is_file():
             raise RecordingNotFound(f"No file at {recording}")
-        job = Job(id=uuid.uuid4().hex, recording=recording, state=JobState.EXTRACTING_AUDIO)
+        job = Job(
+            id=uuid.uuid4().hex,
+            recording=recording,
+            language_mode=language_mode,
+            state=JobState.EXTRACTING_AUDIO,
+        )
         with self._lock:
             if self._job is not None and not self._job.state.finished:
                 raise JobAlreadyRunning(f"A Job is already running for {self._job.recording.name}")
@@ -127,7 +134,7 @@ class JobManager:
                 job.state = JobState.TRANSCRIBING
                 job.transcribing_since = self._timer()
                 job.version += 1
-            segments = self._engine.transcribe(audio)
+            segments = self._engine.transcribe(audio, job.language_mode)
             for segment in segments:
                 if cancel.is_set():
                     segments.close()

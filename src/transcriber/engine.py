@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from transcriber.transcript import Segment
+from transcriber.whisper_options import LanguageMode, whisper_options
 
 MODEL_NAME = "large-v3"
 # Chunks of audio decoded together on the GPU. Higher is faster but makes live progress
@@ -27,7 +28,7 @@ class AudioClip:
 class Engine(Protocol):
     def extract_audio(self, recording: Path) -> AudioClip: ...
 
-    def transcribe(self, audio: AudioClip) -> Generator[Segment]: ...
+    def transcribe(self, audio: AudioClip, mode: LanguageMode) -> Generator[Segment]: ...
 
 
 class WhisperEngine:
@@ -42,6 +43,7 @@ class WhisperEngine:
 
     def __init__(self) -> None:
         self._model: Any = None
+        self._batched: Any = None
         self._load_error: BaseException | None = None
         self._loaded = threading.Event()
         self._load_started = threading.Lock()
@@ -58,19 +60,18 @@ class WhisperEngine:
         try:
             from faster_whisper import BatchedInferencePipeline, WhisperModel
 
-            model = WhisperModel(MODEL_NAME, device="cuda", compute_type="float16")
-            self._model = BatchedInferencePipeline(model)
+            self._model = WhisperModel(MODEL_NAME, device="cuda", compute_type="float16")
+            self._batched = BatchedInferencePipeline(self._model)
         except BaseException as error:  # surfaced to the Job that needs the model
             self._load_error = error
         finally:
             self._loaded.set()
 
-    def _ready_model(self) -> Any:
+    def _wait_for_model(self) -> None:
         self.preload()
         self._loaded.wait()
         if self._load_error is not None:
             raise RuntimeError(f"Could not load the Whisper model: {self._load_error}")
-        return self._model
 
     def extract_audio(self, recording: Path) -> AudioClip:
         from faster_whisper.audio import decode_audio
@@ -79,15 +80,23 @@ class WhisperEngine:
         samples = decode_audio(str(recording), sampling_rate=sampling_rate)
         return AudioClip(samples=samples, duration=len(samples) / sampling_rate)
 
-    def transcribe(self, audio: AudioClip) -> Generator[Segment]:
-        model = self._ready_model()
-        segments, _info = model.transcribe(
-            audio.samples,
-            language="en",
-            beam_size=5,
-            batch_size=BATCH_SIZE,
-            without_timestamps=False,  # keeps Segments sentence-sized instead of 30 seconds
-        )
+    def transcribe(self, audio: AudioClip, mode: LanguageMode) -> Generator[Segment]:
+        self._wait_for_model()
+        options = whisper_options(mode)
+        if options["initial_prompt"] is None:
+            segments, _info = self._batched.transcribe(
+                audio.samples,
+                **options,
+                beam_size=5,
+                batch_size=BATCH_SIZE,
+                without_timestamps=False,  # keeps Segments sentence-sized instead of 30 seconds
+            )
+        else:
+            # A prompt makes the batched pipeline emit 30-second Segments, so prompted
+            # Language Modes (Mixed) use the sequential pipeline: ~9x slower, same timestamps.
+            segments, _info = self._model.transcribe(
+                audio.samples, **options, beam_size=5, vad_filter=True
+            )
         for segment in segments:
             yield Segment(start=segment.start, end=segment.end, text=segment.text)
 

@@ -4,13 +4,15 @@
 
 **Blocked by:** 01 (Walking skeleton)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The import screen has a Language Mode dropdown with English / Indonesian / Mixed, defaulting to English on every load
-- [ ] English and Indonesian force that language for the whole Recording
-- [ ] Mixed forces Indonesian and supplies a short code-mixed Indonesian/English initial prompt
-- [ ] The chosen Language Mode is shown while the Job runs and on the result
+- [x] The import screen has a Language Mode dropdown with English / Indonesian / Mixed, defaulting to English on every load
+- [x] English and Indonesian force that language for the whole Recording
+- [x] Mixed forces Indonesian and supplies a short code-mixed Indonesian/English initial prompt
+- [x] The chosen Language Mode is shown while the Job runs and on the result
 
 ## Comments
 
 Mixed has not been validated on a real code-mixed Recording yet. Validating it is a follow-up once a sample clip is available.
+
+Implementation finding: passing the hint as a prompt to faster-whisper's batched pipeline collapses Segments to ~30 seconds. Mixed therefore runs the sequential pipeline (sentence-sized Segments, ~9x slower: roughly 15 minutes per hour of Recording on an RTX 4070 SUPER). English and Indonesian stay batched. Also observed: forced Indonesian *without* the hint already left English speech untranslated, so once a real code-mixed clip is available, compare Mixed against plain Indonesian; if they match, Mixed could drop the hint and get the batched speed back.

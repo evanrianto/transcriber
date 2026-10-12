@@ -10,6 +10,7 @@ const views = {
 };
 
 const STAGES = ["extracting_audio", "transcribing"];
+const LANGUAGE_NAMES = { english: "English", indonesian: "Indonesian", mixed: "Mixed" };
 const FINISHED = ["done", "failed", "cancelled"];
 
 let events = null;
@@ -57,8 +58,12 @@ function appendLiveSegments(newSegments, replace) {
   if (nearBottom) list.scrollTop = list.scrollHeight;
 }
 
+function describeJob() {
+  return `${job.recording_name} · ${LANGUAGE_NAMES[job.language_mode]}`;
+}
+
 function renderProgress() {
-  $("job-recording").textContent = job.recording_name;
+  $("job-recording").textContent = describeJob();
   const stageIndex = STAGES.indexOf(job.state);
   for (const el of document.querySelectorAll(".stage")) {
     const index = STAGES.indexOf(el.dataset.stage);
@@ -81,7 +86,7 @@ function renderProgress() {
 }
 
 function renderResult() {
-  $("result-recording").textContent = job.recording_name;
+  $("result-recording").textContent = describeJob();
   $("saved-note").textContent = `Saved to ${job.saved_to}`;
   $("result-segments").replaceChildren(...segments.map(segmentItem));
 }
@@ -141,7 +146,10 @@ $("import-form").addEventListener("submit", async (event) => {
   const response = await fetch("/api/job", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path: $("path-input").value }),
+    body: JSON.stringify({
+      path: $("path-input").value,
+      language_mode: $("language-select").value,
+    }),
   });
   if (!response.ok) {
     const { detail } = await response.json();

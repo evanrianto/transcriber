@@ -14,6 +14,7 @@ from transcriber.jobs import (
     RecordingNotFound,
 )
 from transcriber.transcript import Segment
+from transcriber.whisper_options import LanguageMode
 
 SEGMENTS = [
     Segment(start=0.0, end=3.0, text="Hello and welcome."),
@@ -168,3 +169,14 @@ def test_cancelling_when_nothing_is_running_is_an_error(recording: Path) -> None
 
     with pytest.raises(NoJobRunning):
         manager.cancel()
+
+
+def test_the_job_transcribes_in_the_chosen_language_mode(recording: Path) -> None:
+    engine = FakeEngine(SEGMENTS)
+    manager = JobManager(engine, clock=fixed_clock)
+
+    manager.start(recording, LanguageMode.MIXED)
+    manager.wait(timeout=5)
+
+    assert engine.language_modes == [LanguageMode.MIXED]
+    assert manager.current().language_mode is LanguageMode.MIXED  # type: ignore[union-attr]

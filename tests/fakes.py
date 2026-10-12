@@ -8,6 +8,7 @@ from pathlib import Path
 
 from transcriber.engine import AudioClip
 from transcriber.transcript import Segment
+from transcriber.whisper_options import LanguageMode
 
 
 class FakeEngine:
@@ -17,13 +18,15 @@ class FakeEngine:
         self.segments = segments
         self.duration = duration
         self.fail_with: Exception | None = None
+        self.language_modes: list[LanguageMode] = []
 
     def extract_audio(self, recording: Path) -> AudioClip:
         if self.fail_with is not None:
             raise self.fail_with
         return AudioClip(samples=None, duration=self.duration)
 
-    def transcribe(self, audio: AudioClip) -> Generator[Segment]:
+    def transcribe(self, audio: AudioClip, mode: LanguageMode) -> Generator[Segment]:
+        self.language_modes.append(mode)
         yield from self.segments
 
 
@@ -42,7 +45,7 @@ class SteppedEngine:
     def extract_audio(self, recording: Path) -> AudioClip:
         return AudioClip(samples=None, duration=self.duration)
 
-    def transcribe(self, audio: AudioClip) -> Generator[Segment]:
+    def transcribe(self, audio: AudioClip, mode: LanguageMode) -> Generator[Segment]:
         for segment in self.segments:
             self._steps.acquire()
             yield segment

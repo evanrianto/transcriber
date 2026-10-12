@@ -205,3 +205,21 @@ def test_closing_the_os_dialog_without_choosing_returns_no_path(manager: JobMana
     client = TestClient(create_app(manager, dialogs=FakeDialogs(choose=None)))
 
     assert client.post("/api/dialog/open").json() == {"path": None}
+
+
+def test_the_language_mode_is_chosen_at_import_and_defaults_to_english(
+    client: TestClient, manager: JobManager, recording: Path
+) -> None:
+    client.post("/api/job", json={"path": str(recording)})
+    manager.wait(timeout=5)
+    assert client.get("/api/job").json()["job"]["language_mode"] == "english"
+
+    client.post("/api/job", json={"path": str(recording), "language_mode": "mixed"})
+    manager.wait(timeout=5)
+    assert client.get("/api/job").json()["job"]["language_mode"] == "mixed"
+
+
+def test_an_unknown_language_mode_is_rejected(client: TestClient, recording: Path) -> None:
+    response = client.post("/api/job", json={"path": str(recording), "language_mode": "auto"})
+
+    assert response.status_code == 422

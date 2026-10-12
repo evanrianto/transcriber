@@ -115,6 +115,10 @@ h1 {
   font-weight: 550;
 }
 
+.field-narrow {
+  max-width: 340px;
+}
+
 .field-row {
   display: flex;
   gap: 8px;

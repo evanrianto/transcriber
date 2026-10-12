@@ -16,12 +16,14 @@ from pydantic import BaseModel
 from transcriber.dialogs import Dialogs, NativeDialogs
 from transcriber.jobs import Job, JobAlreadyRunning, JobManager, NoJobRunning, RecordingNotFound
 from transcriber.transcript import Segment
+from transcriber.whisper_options import LanguageMode
 
 STATIC_DIR = Path(__file__).parent / "static"
 
 
 class ImportRequest(BaseModel):
     path: str
+    language_mode: LanguageMode = LanguageMode.ENGLISH
 
 
 EVENT_POLL_SECONDS = 0.2
@@ -38,6 +40,7 @@ def job_json(job: Job | None, include_segments: bool = True) -> dict[str, Any] |
         "id": job.id,
         "recording": str(job.recording),
         "recording_name": job.recording.name,
+        "language_mode": job.language_mode.value,
         "state": job.state.value,
         "duration": job.duration,
         "percent": job.percent,
@@ -100,7 +103,7 @@ def create_app(manager: JobManager, dialogs: Dialogs | None = None) -> FastAPI:
     @app.post("/api/job", status_code=201)
     def start_job(request: ImportRequest) -> dict[str, Any]:
         try:
-            job = manager.start(clean_path(request.path))
+            job = manager.start(clean_path(request.path), request.language_mode)
         except RecordingNotFound as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         except JobAlreadyRunning as error:
