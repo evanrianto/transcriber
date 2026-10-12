@@ -4,11 +4,15 @@
 
 **Blocked by:** 06 (Result player for playable videos)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `make install` installs a full ffmpeg through pip, so no platform needs a manual ffmpeg install
-- [ ] The app decides from the Recording's container and codec whether it's browser-playable. Playable Recordings are never converted
-- [ ] For non-playable Recordings, a 720p, modest-bitrate preview is produced at the same time as transcription, using NVENC when available and a fast CPU encoder otherwise
-- [ ] The result screen shows the Transcript immediately and a "Preparing preview… NN%" placeholder until the preview is ready, then the working player with click-to-seek
-- [ ] Previews live in a temp location that is cleared when the next Job starts and when the app stops. Cancelling a Job also stops and discards its preview
-- [ ] If preview conversion fails, the Transcript is unaffected and the player area shows a short "preview unavailable" note
+- [x] `make install` installs a full ffmpeg through pip, so no platform needs a manual ffmpeg install
+- [x] The app decides from the Recording's container and codec whether it's browser-playable. Playable Recordings are never converted
+- [x] For non-playable Recordings, a 720p, modest-bitrate preview is produced at the same time as transcription, using NVENC when available and a fast CPU encoder otherwise
+- [x] The result screen shows the Transcript immediately and a "Preparing preview… NN%" placeholder until the preview is ready, then the working player with click-to-seek
+- [x] Previews live in a temp location that is cleared when the next Job starts and when the app stops. Cancelling a Job also stops and discards its preview
+- [x] If preview conversion fails, the Transcript is unaffected and the player area shows a short "preview unavailable" note
+
+## Comments
+
+Verified end to end with a 3-minute HEVC/AC-3 MKV: the preview converted alongside transcription (NVENC) and was served as MP4. Preview bitrate is capped at 1.5 Mbit/s. Folders left by a killed app are removed at the next startup.

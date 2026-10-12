@@ -14,7 +14,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from transcriber.dialogs import Dialogs, NativeDialogs
-from transcriber.jobs import Job, JobAlreadyRunning, JobManager, NoJobRunning, RecordingNotFound
+from transcriber.jobs import (
+    Job,
+    JobAlreadyRunning,
+    JobManager,
+    NoJobRunning,
+    PreviewStatus,
+    RecordingNotFound,
+)
 from transcriber.transcript import Segment
 from transcriber.whisper_options import LanguageMode
 
@@ -47,6 +54,7 @@ def job_json(job: Job | None, include_segments: bool = True) -> dict[str, Any] |
         "eta_seconds": job.eta_seconds,
         "saved_to": str(job.saved_to) if job.saved_to else None,
         "error": job.error,
+        "preview": {"status": job.preview_status.value, "percent": job.preview_percent},
     }
     if include_segments:
         data["segments"] = segments_json(job.segments)
@@ -61,7 +69,7 @@ async def job_events(manager: JobManager, request: Request) -> AsyncIterator[str
     """Stream the current Job: each event carries its state plus only the Segments not yet sent.
 
     The first event replays every Segment so far, which is how a refreshed page reconnects.
-    The stream ends once the Job is finished.
+    The stream ends once the Job is finished and its preview (if any) is ready or failed.
     """
     job_id: str | None = None
     sent = 0
@@ -82,7 +90,7 @@ async def job_events(manager: JobManager, request: Request) -> AsyncIterator[str
                 }
             )
             sent, version = len(job.segments), job.version
-        if job.state.finished or await request.is_disconnected():
+        if job.settled or await request.is_disconnected():
             return
         await asyncio.sleep(EVENT_POLL_SECONDS)
 
@@ -126,12 +134,16 @@ def create_app(manager: JobManager, dialogs: Dialogs | None = None) -> FastAPI:
 
     @app.get("/api/job/media")
     def play_recording() -> FileResponse:
-        """The current Recording, streamed from its original path. FileResponse honours
-        Range requests, so the player can seek anywhere in an hour-long video."""
+        """The current Recording (or its preview, when the browser can't play the original).
+        FileResponse honours Range requests, so the player can seek anywhere in it."""
         job = manager.current()
         if job is None:
             raise HTTPException(status_code=404, detail="No Recording to play")
-        return FileResponse(job.recording)
+        if job.preview_status is PreviewStatus.NOT_NEEDED:
+            return FileResponse(job.recording)
+        if job.preview_status is PreviewStatus.READY and job.preview_path is not None:
+            return FileResponse(job.preview_path)
+        raise HTTPException(status_code=409, detail="The preview isn't ready")
 
     @app.get("/api/job/events")
     def stream_job_events(request: Request) -> StreamingResponse:

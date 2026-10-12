@@ -13,7 +13,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.fakes import FakeDialogs, FakeEngine, SteppedEngine
+from tests.fakes import FakeDialogs, FakeEngine, FakePreviewer, SteppedEngine
 from transcriber.app import create_app
 from transcriber.jobs import JobManager
 from transcriber.transcript import Segment
@@ -243,3 +243,25 @@ def test_the_recording_is_streamed_for_playback_with_seek_support(
 
 def test_there_is_nothing_to_play_before_the_first_import(client: TestClient) -> None:
     assert client.get("/api/job/media").status_code == 404
+
+
+def test_a_converted_preview_is_played_instead_of_the_original(recording: Path) -> None:
+    previewer = FakePreviewer(needed=True)
+    manager = JobManager(FakeEngine(SEGMENTS), previewer=previewer)
+    client = TestClient(create_app(manager))
+    client.post("/api/job", json={"path": str(recording)})
+    manager.wait(timeout=5)
+
+    converting = client.get("/api/job").json()["job"]["preview"]
+    still_converting = client.get("/api/job/media")
+    previewer.finish()
+    with client.stream("GET", "/api/job/events") as response:  # ends once the preview is ready
+        last = [line for line in response.iter_lines() if line.startswith("data: ")][-1]
+    ready = client.get("/api/job/media")
+
+    assert converting == {"status": "converting", "percent": 50.0}
+    assert still_converting.status_code == 409
+    assert json.loads(last.removeprefix("data: "))["job"]["preview"]["status"] == "ready"
+    assert ready.status_code == 200
+    assert ready.content == b"preview video"
+    manager.close()

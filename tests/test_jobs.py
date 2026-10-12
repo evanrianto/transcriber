@@ -5,12 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from tests.fakes import FakeEngine, SteppedEngine
+from tests.fakes import FakeEngine, FakePreviewer, SteppedEngine
 from transcriber.jobs import (
     JobAlreadyRunning,
     JobManager,
     JobState,
     NoJobRunning,
+    PreviewStatus,
     RecordingNotFound,
 )
 from transcriber.transcript import Segment
@@ -180,3 +181,95 @@ def test_the_job_transcribes_in_the_chosen_language_mode(recording: Path) -> Non
 
     assert engine.language_modes == [LanguageMode.MIXED]
     assert manager.current().language_mode is LanguageMode.MIXED  # type: ignore[union-attr]
+
+
+def test_a_recording_the_browser_cannot_play_gets_a_preview_alongside_transcription(
+    recording: Path,
+) -> None:
+    previewer = FakePreviewer(needed=True)
+    manager = JobManager(FakeEngine(SEGMENTS), clock=fixed_clock, previewer=previewer)
+
+    manager.start(recording)
+    wait_for(lambda: manager.current().state is JobState.DONE)  # type: ignore[union-attr]
+    job = manager.current()
+    assert job is not None
+    assert job.preview_status is PreviewStatus.CONVERTING
+    assert job.preview_percent == 50.0
+    assert not job.settled  # the Transcript is ready, but the preview isn't yet
+
+    previewer.finish()
+    wait_for(lambda: manager.current().settled)  # type: ignore[union-attr]
+    job = manager.current()
+    assert job is not None
+    assert job.preview_status is PreviewStatus.READY
+    assert job.preview_path is not None and job.preview_path.read_bytes() == b"preview video"
+    assert job.preview_path.parent != recording.parent  # nothing but the .txt goes next to it
+    manager.close()
+
+
+def test_a_playable_recording_is_never_converted(recording: Path) -> None:
+    previewer = FakePreviewer(needed=False)
+    manager = JobManager(FakeEngine(SEGMENTS), clock=fixed_clock, previewer=previewer)
+
+    manager.start(recording)
+    manager.wait(timeout=5)
+
+    job = manager.current()
+    assert job is not None
+    assert job.preview_status is PreviewStatus.NOT_NEEDED
+    assert job.settled
+    assert previewer.made == []
+    manager.close()
+
+
+def test_a_failed_preview_leaves_the_transcript_unaffected(recording: Path) -> None:
+    previewer = FakePreviewer(needed=True, fail=True)
+    manager = JobManager(FakeEngine(SEGMENTS), clock=fixed_clock, previewer=previewer)
+
+    manager.start(recording)
+    previewer.finish()
+    wait_for(lambda: manager.current().settled)  # type: ignore[union-attr]
+
+    job = manager.current()
+    assert job is not None
+    assert job.state is JobState.DONE
+    assert job.saved_to is not None
+    assert job.preview_status is PreviewStatus.FAILED
+    manager.close()
+
+
+def test_cancelling_a_job_also_stops_its_preview(recording: Path) -> None:
+    engine = SteppedEngine(SEGMENTS)
+    previewer = FakePreviewer(needed=True)
+    manager = JobManager(engine, clock=fixed_clock, previewer=previewer)
+    manager.start(recording)
+    wait_for(lambda: manager.current().preview_percent == 50.0)  # type: ignore[union-attr]
+
+    manager.cancel()
+    engine.step(len(SEGMENTS))
+    wait_for(lambda: manager.current().settled)  # type: ignore[union-attr]
+
+    assert previewer.saw_cancel
+    assert manager.current().preview_status is PreviewStatus.DISCARDED  # type: ignore[union-attr]
+    manager.close()
+
+
+def test_previews_are_cleared_when_the_next_job_starts_and_when_the_app_stops(
+    recording: Path,
+) -> None:
+    previewer = FakePreviewer(needed=True)
+    previewer.finish()
+    manager = JobManager(FakeEngine(SEGMENTS), clock=fixed_clock, previewer=previewer)
+    manager.start(recording)
+    wait_for(lambda: manager.current().settled)  # type: ignore[union-attr]
+    first = manager.current().preview_path  # type: ignore[union-attr]
+    assert first is not None and first.exists()
+
+    manager.start(recording)
+    assert not first.exists()
+    wait_for(lambda: manager.current().settled)  # type: ignore[union-attr]
+    second = manager.current().preview_path  # type: ignore[union-attr]
+    assert second is not None and second.exists()
+
+    manager.close()
+    assert not second.parent.exists()

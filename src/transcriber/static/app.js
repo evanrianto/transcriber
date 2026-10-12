@@ -92,28 +92,45 @@ function renderProgress() {
   $("progress-eta").textContent = started ? formatEta(job.eta_seconds) : "";
 }
 
+let renderedResultKey = null;
+
 function renderResult() {
   $("result-recording").textContent = describeJob();
   $("saved-note").textContent = `Saved to ${job.saved_to}`;
-  $("result-segments").replaceChildren(...segments.map((s, i) => segmentItem(s, i, true)));
-  currentIndex = -1;
-  loadPlayer();
+  // Preview progress keeps updating after the Job is done; only rebuild the list when needed.
+  const key = `${job.id}:${segments.length}`;
+  if (key !== renderedResultKey) {
+    renderedResultKey = key;
+    $("result-segments").replaceChildren(...segments.map((s, i) => segmentItem(s, i, true)));
+    currentIndex = -1;
+  }
+  renderPlayer();
 }
 
 // Result player: the video plays beside the Transcript; timestamps seek, and the
 // Segment being played is highlighted and kept in view.
 
-let playerJobId = null;
+let playerSource = null;
 let currentIndex = -1;
 let userScrolledAt = 0;
 
-function loadPlayer() {
-  if (playerJobId === job.id) return;
-  playerJobId = job.id;
+function renderPlayer() {
+  const { status, percent } = job.preview;
+  if (status === "converting") {
+    setPlayerNote(`Preparing preview… ${Math.round(percent)}%`);
+    return;
+  }
+  if (status === "failed" || status === "discarded") {
+    setPlayerNote("Preview unavailable for this file.");
+    return;
+  }
+  const source = `/api/job/media?job=${job.id}&preview=${status}`;
+  if (playerSource === source) return;
+  playerSource = source;
   const player = $("player");
   player.classList.remove("audio-only");
   setPlayerNote("");
-  player.src = `/api/job/media?job=${job.id}`;
+  player.src = source;
 }
 
 function setPlayerNote(message) {
@@ -203,6 +220,10 @@ function showImportError(message) {
   el.hidden = !message;
 }
 
+function isSettled(job) {
+  return FINISHED.includes(job.state) && job.preview.status !== "converting";
+}
+
 function watchJob() {
   if (events) events.close();
   events = new EventSource("/api/job/events");
@@ -216,7 +237,7 @@ function watchJob() {
     }
     render();
     // The server closes the stream once the Job is finished; don't let EventSource reconnect.
-    if (!job || FINISHED.includes(job.state)) events.close();
+    if (!job || isSettled(job)) events.close();
   };
 }
 

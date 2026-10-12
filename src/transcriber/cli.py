@@ -15,6 +15,7 @@ from transcriber.app import create_app
 from transcriber.cuda_libs import register_cuda_libraries
 from transcriber.engine import WhisperEngine
 from transcriber.jobs import JobManager
+from transcriber.previews import FfmpegPreviewer, remove_stale_preview_dirs
 
 # Localhost only: the server reads files by path, so it must never be reachable from
 # the network. See docs/adr/0001-import-recordings-by-path.md.
@@ -49,10 +50,11 @@ def main() -> None:
         print("Use `uv run transcriber --port <number>` to pick another port.")
         sys.exit(1)
 
+    remove_stale_preview_dirs()  # only one app runs at a time (the port check above)
     register_cuda_libraries()
     engine = WhisperEngine()
     engine.preload()
-    manager = JobManager(engine)
+    manager = JobManager(engine, previewer=FfmpegPreviewer())
 
     config = uvicorn.Config(create_app(manager), host=HOST, port=args.port, log_level="warning")
     server = uvicorn.Server(config)
@@ -60,7 +62,10 @@ def main() -> None:
         open_browser_when_ready(server, url)
     else:
         print(f"Transcriber is running at {url}")
-    server.run()
+    try:
+        server.run()
+    finally:
+        manager.close()  # stops any conversion and deletes temporary previews
 
 
 if __name__ == "__main__":

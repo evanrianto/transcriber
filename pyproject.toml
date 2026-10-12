@@ -9,6 +9,8 @@ dependencies = [
     "faster-whisper>=1.1",
     # faster-whisper passes `metadata_errors` to av.open(), which newer PyAV removed.
     "av>=11,<17",
+    # A full ffmpeg (with H.264 encoders) for converting previews the browser can play.
+    "imageio-ffmpeg>=0.5",
     # CUDA runtime libraries for faster-whisper's GPU path (no system CUDA install needed).
     "nvidia-cublas-cu12>=12,<13; sys_platform == 'win32' or sys_platform == 'linux'",
     "nvidia-cudnn-cu12>=9,<10; sys_platform == 'win32' or sys_platform == 'linux'",

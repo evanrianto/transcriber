@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
 
 from transcriber.engine import AudioClip
+from transcriber.previews import PreviewCancelled
 from transcriber.transcript import Segment
 from transcriber.whisper_options import LanguageMode
 
@@ -59,3 +60,39 @@ class FakeDialogs:
 
     def open_recording(self) -> Path | None:
         return self.choose
+
+
+class FakePreviewer:
+    """Stands in for ffmpeg. Reports 50%, then holds until the test calls `finish()`."""
+
+    def __init__(self, needed: bool = True, fail: bool = False) -> None:
+        self.needed = needed
+        self.fail = fail
+        self.made: list[Path] = []
+        self.saw_cancel = False
+        self._finish = threading.Event()
+
+    def finish(self) -> None:
+        self._finish.set()
+
+    def needs_preview(self, recording: Path) -> bool:
+        return self.needed
+
+    def make(
+        self,
+        recording: Path,
+        dest_dir: Path,
+        on_progress: Callable[[float], None],
+        cancel: threading.Event,
+    ) -> Path:
+        on_progress(50.0)
+        while not self._finish.wait(0.01):
+            if cancel.is_set():
+                self.saw_cancel = True
+                raise PreviewCancelled()
+        if self.fail:
+            raise RuntimeError("encoder exploded")
+        preview = dest_dir / f"{recording.stem}.preview.mp4"
+        preview.write_bytes(b"preview video")
+        self.made.append(preview)
+        return preview
