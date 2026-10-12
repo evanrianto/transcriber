@@ -38,7 +38,7 @@ def manager() -> JobManager:
 
 @pytest.fixture
 def client(manager: JobManager) -> TestClient:
-    return TestClient(create_app(manager))
+    return TestClient(create_app(manager, dialogs=FakeDialogs()))
 
 
 def test_there_is_no_job_before_the_first_import(client: TestClient) -> None:
@@ -124,7 +124,7 @@ def test_the_event_stream_sends_new_segments_as_they_are_produced(
     engine.step()
 
     with (
-        LiveServer(create_app(manager)) as server,
+        LiveServer(create_app(manager, dialogs=FakeDialogs())) as server,
         httpx.stream("GET", f"{server.url}/api/job/events", timeout=5) as response,
     ):
         lines = response.iter_lines()
@@ -165,7 +165,7 @@ def test_the_event_stream_replays_a_finished_job_and_closes(
 def test_importing_while_a_job_runs_is_refused(recording: Path) -> None:
     engine = SteppedEngine(SEGMENTS)
     manager = JobManager(engine)
-    client = TestClient(create_app(manager))
+    client = TestClient(create_app(manager, dialogs=FakeDialogs()))
     client.post("/api/job", json={"path": str(recording)})
 
     response = client.post("/api/job", json={"path": str(recording)})
@@ -179,7 +179,7 @@ def test_importing_while_a_job_runs_is_refused(recording: Path) -> None:
 def test_a_running_job_can_be_cancelled(recording: Path) -> None:
     engine = SteppedEngine(SEGMENTS)
     manager = JobManager(engine)
-    client = TestClient(create_app(manager))
+    client = TestClient(create_app(manager, dialogs=FakeDialogs()))
     client.post("/api/job", json={"path": str(recording)})
 
     response = client.post("/api/job/cancel")
@@ -248,7 +248,7 @@ def test_there_is_nothing_to_play_before_the_first_import(client: TestClient) ->
 def test_a_converted_preview_is_played_instead_of_the_original(recording: Path) -> None:
     previewer = FakePreviewer(needed=True)
     manager = JobManager(FakeEngine(SEGMENTS), previewer=previewer)
-    client = TestClient(create_app(manager))
+    client = TestClient(create_app(manager, dialogs=FakeDialogs()))
     client.post("/api/job", json={"path": str(recording)})
     manager.wait(timeout=5)
 
@@ -265,3 +265,46 @@ def test_a_converted_preview_is_played_instead_of_the_original(recording: Path) 
     assert ready.status_code == 200
     assert ready.content == b"preview video"
     manager.close()
+
+
+def test_the_transcript_text_can_be_fetched_for_copying(
+    client: TestClient, manager: JobManager, recording: Path
+) -> None:
+    client.post("/api/job", json={"path": str(recording)})
+    manager.wait(timeout=5)
+
+    response = client.get("/api/job/transcript")
+
+    assert response.status_code == 200
+    assert response.text == "[00:00:00] Hello and welcome.\n[00:00:03] Let's get started.\n"
+
+
+def test_save_as_asks_where_to_save_with_the_usual_name_and_saves_there(
+    recording: Path, tmp_path: Path
+) -> None:
+    chosen = tmp_path / "chosen.txt"
+    dialogs = FakeDialogs(save_to=chosen)
+    manager = JobManager(FakeEngine(SEGMENTS), clock=lambda: datetime(2026, 10, 12, 14, 30, 5))
+    client = TestClient(create_app(manager, dialogs=dialogs))
+    client.post("/api/job", json={"path": str(recording)})
+    manager.wait(timeout=5)
+
+    response = client.post("/api/job/save-as")
+
+    assert response.status_code == 200
+    assert dialogs.suggested == "meeting.transcript.2026-10-12_14-30-05.txt"
+    assert response.json()["job"]["saved_to"] == str(chosen)
+    assert chosen.read_text(encoding="utf-8").startswith("[00:00:00] Hello and welcome.")
+
+
+def test_closing_the_save_dialog_saves_nothing(
+    client: TestClient, manager: JobManager, recording: Path
+) -> None:
+    client.post("/api/job", json={"path": str(recording)})
+    manager.wait(timeout=5)
+    saved_before = client.get("/api/job").json()["job"]["saved_to"]
+
+    response = client.post("/api/job/save-as")
+
+    assert response.status_code == 200
+    assert response.json()["job"]["saved_to"] == saved_before

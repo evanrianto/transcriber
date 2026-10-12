@@ -76,6 +76,13 @@
           <button type="button" class="button" id="new-button">New transcription</button>
         </div>
         <p id="saved-note" class="note success"></p>
+        <div id="save-problem" class="save-problem" role="alert" hidden>
+          <p id="save-error"></p>
+          <div class="save-actions">
+            <button type="button" class="button" id="copy-button">Copy</button>
+            <button type="button" class="button primary" id="save-as-button">Save as…</button>
+          </div>
+        </div>
         <div class="result-layout">
           <div class="player-pane" id="player-pane">
             <video id="player" controls preload="metadata"></video>

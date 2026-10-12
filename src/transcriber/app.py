@@ -9,20 +9,21 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from transcriber.dialogs import Dialogs, NativeDialogs
+from transcriber.dialogs import Dialogs
 from transcriber.jobs import (
     Job,
     JobAlreadyRunning,
     JobManager,
     NoJobRunning,
+    NoTranscript,
     PreviewStatus,
     RecordingNotFound,
 )
-from transcriber.transcript import Segment
+from transcriber.transcript import Segment, render_transcript
 from transcriber.whisper_options import LanguageMode
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -53,6 +54,7 @@ def job_json(job: Job | None, include_segments: bool = True) -> dict[str, Any] |
         "percent": job.percent,
         "eta_seconds": job.eta_seconds,
         "saved_to": str(job.saved_to) if job.saved_to else None,
+        "save_error": job.save_error,
         "error": job.error,
         "preview": {"status": job.preview_status.value, "percent": job.preview_percent},
     }
@@ -100,9 +102,8 @@ def clean_path(raw: str) -> Path:
     return Path(raw.strip().strip('"').strip("'"))
 
 
-def create_app(manager: JobManager, dialogs: Dialogs | None = None) -> FastAPI:
+def create_app(manager: JobManager, dialogs: Dialogs) -> FastAPI:
     app = FastAPI(title="Transcriber")
-    os_dialogs = dialogs if dialogs is not None else NativeDialogs()
 
     @app.get("/api/job")
     def get_job() -> dict[str, Any]:
@@ -129,8 +130,29 @@ def create_app(manager: JobManager, dialogs: Dialogs | None = None) -> FastAPI:
     @app.post("/api/dialog/open")
     def choose_recording() -> dict[str, Any]:
         """Open the OS file dialog on this machine; blocks until the user closes it."""
-        chosen = os_dialogs.open_recording()
+        chosen = dialogs.open_recording()
         return {"path": str(chosen) if chosen else None}
+
+    @app.get("/api/job/transcript")
+    def transcript_text() -> PlainTextResponse:
+        """The Transcript as `[hh:mm:ss] text` lines, for the Copy button."""
+        job = manager.current()
+        if job is None:
+            raise HTTPException(status_code=404, detail="There is no Transcript yet")
+        return PlainTextResponse(render_transcript(job.segments))
+
+    @app.post("/api/job/save-as")
+    def save_transcript_as() -> dict[str, Any]:
+        """Ask where to save with the OS save dialog, then write the Transcript there."""
+        try:
+            chosen = dialogs.save_transcript_as(manager.suggested_transcript_path())
+            if chosen is not None:
+                manager.save_as(chosen)
+        except NoTranscript as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except OSError as error:
+            raise HTTPException(status_code=400, detail=f"Couldn't save there: {error}") from error
+        return {"job": job_json(manager.current())}
 
     @app.get("/api/job/media")
     def play_recording() -> FileResponse:

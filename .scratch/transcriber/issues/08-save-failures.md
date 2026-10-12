@@ -4,9 +4,13 @@
 
 **Blocked by:** 01 (Walking skeleton), 04 ("Choose file" via the OS dialog)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] If writing the `.txt` next to the Recording fails, the Job still finishes as done, and the result screen shows the Transcript with a clear error naming the folder
-- [ ] **Copy** puts the whole Transcript, in the `[hh:mm:ss] text` format, on the clipboard and confirms it
-- [ ] **Save as…** opens the native save dialog, pre-filled with the usual `<name>.transcript.<timestamp>.txt` name, and writes the Transcript where the user chooses
-- [ ] A successful save via **Save as…** replaces the error with the saved location
+- [x] If writing the `.txt` next to the Recording fails, the Job still finishes as done, and the result screen shows the Transcript with a clear error naming the folder
+- [x] **Copy** puts the whole Transcript, in the `[hh:mm:ss] text` format, on the clipboard and confirms it
+- [x] **Save as…** opens the native save dialog, pre-filled with the usual `<name>.transcript.<timestamp>.txt` name, and writes the Transcript where the user chooses
+- [x] A successful save via **Save as…** replaces the error with the saved location
+
+## Comments
+
+Verified with a folder whose ACL denies creating files: the Job finished, the error named the folder, and Copy's text was correct. The real Save as… dialog was not clicked during automated checks (it opens on the desktop); its API path is covered by tests with a fake dialog.

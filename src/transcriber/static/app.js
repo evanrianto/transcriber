@@ -94,9 +94,17 @@ function renderProgress() {
 
 let renderedResultKey = null;
 
+function renderSaveStatus() {
+  const saved = Boolean(job.saved_to);
+  $("saved-note").hidden = !saved;
+  $("saved-note").textContent = saved ? `Saved to ${job.saved_to}` : "";
+  $("save-problem").hidden = saved;
+  $("save-error").textContent = job.save_error || "";
+}
+
 function renderResult() {
   $("result-recording").textContent = describeJob();
-  $("saved-note").textContent = `Saved to ${job.saved_to}`;
+  renderSaveStatus();
   // Preview progress keeps updating after the Job is done; only rebuild the list when needed.
   const key = `${job.id}:${segments.length}`;
   if (key !== renderedResultKey) {
@@ -286,6 +294,31 @@ $("cancel-button").addEventListener("click", async () => {
   renderProgress();
   const response = await fetch("/api/job/cancel", { method: "POST" });
   if (!response.ok) cancelling = false; // already finished; the event stream shows the outcome
+});
+
+$("copy-button").addEventListener("click", async () => {
+  const button = $("copy-button");
+  const text = await (await fetch("/api/job/transcript")).text();
+  await navigator.clipboard.writeText(text);
+  button.textContent = "Copied";
+  setTimeout(() => (button.textContent = "Copy"), 2000);
+});
+
+$("save-as-button").addEventListener("click", async () => {
+  const button = $("save-as-button");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/job/save-as", { method: "POST" });
+    const body = await response.json();
+    if (!response.ok) {
+      $("save-error").textContent = body.detail;
+      return;
+    }
+    job = body.job;
+    renderSaveStatus();
+  } finally {
+    button.disabled = false;
+  }
 });
 
 $("new-button").addEventListener("click", () => {

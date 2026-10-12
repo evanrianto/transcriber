@@ -221,6 +221,31 @@ input[type="text"] {
   margin-bottom: 20px;
 }
 
+.save-problem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.save-problem p {
+  margin: 0;
+  flex: 1 1 280px;
+  overflow-wrap: anywhere;
+}
+
+.save-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* Job and result */
 
 .job-header,

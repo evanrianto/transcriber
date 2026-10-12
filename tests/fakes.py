@@ -55,11 +55,17 @@ class SteppedEngine:
 class FakeDialogs:
     """Stands in for the native OS file dialogs."""
 
-    def __init__(self, choose: Path | None = None) -> None:
+    def __init__(self, choose: Path | None = None, save_to: Path | None = None) -> None:
         self.choose = choose
+        self.save_to = save_to
+        self.suggested: str | None = None
 
     def open_recording(self) -> Path | None:
         return self.choose
+
+    def save_transcript_as(self, suggested: Path) -> Path | None:
+        self.suggested = suggested.name
+        return self.save_to
 
 
 class FakePreviewer:

@@ -273,3 +273,42 @@ def test_previews_are_cleared_when_the_next_job_starts_and_when_the_app_stops(
 
     manager.close()
     assert not second.parent.exists()
+
+
+def test_when_the_transcript_cannot_be_saved_next_to_the_recording_the_job_still_finishes(
+    recording: Path,
+) -> None:
+    blocked = recording.parent / "meeting.transcript.2026-10-12_14-30-05.txt"
+    blocked.mkdir()  # something already occupies the name, like a read-only folder would
+    manager = JobManager(FakeEngine(SEGMENTS), clock=fixed_clock)
+
+    manager.start(recording)
+    manager.wait(timeout=5)
+
+    job = manager.current()
+    assert job is not None
+    assert job.state is JobState.DONE
+    assert job.segments == SEGMENTS
+    assert job.saved_to is None
+    assert job.save_error is not None and str(recording.parent) in job.save_error
+
+
+def test_save_as_writes_the_transcript_where_the_user_chooses(
+    recording: Path, tmp_path: Path
+) -> None:
+    (recording.parent / "meeting.transcript.2026-10-12_14-30-05.txt").mkdir()
+    manager = JobManager(FakeEngine(SEGMENTS), clock=fixed_clock)
+    manager.start(recording)
+    manager.wait(timeout=5)
+    elsewhere = tmp_path / "elsewhere" / "notes.txt"
+    elsewhere.parent.mkdir()
+
+    manager.save_as(elsewhere)
+
+    job = manager.current()
+    assert job is not None
+    assert job.saved_to == elsewhere
+    assert job.save_error is None
+    assert elsewhere.read_text(encoding="utf-8") == (
+        "[00:00:00] Hello and welcome.\n[00:00:03] Let's get started.\n"
+    )

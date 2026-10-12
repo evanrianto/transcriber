@@ -21,10 +21,15 @@ MEDIA_EXTENSIONS = (
 class Dialogs(Protocol):
     def open_recording(self) -> Path | None: ...
 
+    def save_transcript_as(self, suggested: Path) -> Path | None: ...
+
 
 class NativeDialogs:
     def open_recording(self) -> Path | None:
         return _run_dialog("open")
+
+    def save_transcript_as(self, suggested: Path) -> Path | None:
+        return _run_dialog("save", str(suggested))
 
 
 def _run_dialog(*args: str) -> Path | None:
@@ -59,6 +64,16 @@ def _main(argv: list[str]) -> None:
             parent=root,
             title="Choose a recording",
             filetypes=[("Video and audio", MEDIA_EXTENSIONS), ("All files", "*.*")],
+        )
+    elif command == "save":
+        suggested = Path(argv[1])
+        chosen = filedialog.asksaveasfilename(
+            parent=root,
+            title="Save transcript as",
+            initialdir=str(suggested.parent),
+            initialfile=suggested.name,
+            defaultextension=".txt",
+            filetypes=[("Text", "*.txt"), ("All files", "*.*")],
         )
     root.destroy()
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]

@@ -13,6 +13,7 @@ import uvicorn
 
 from transcriber.app import create_app
 from transcriber.cuda_libs import register_cuda_libraries
+from transcriber.dialogs import NativeDialogs
 from transcriber.engine import WhisperEngine
 from transcriber.jobs import JobManager
 from transcriber.previews import FfmpegPreviewer, remove_stale_preview_dirs
@@ -56,7 +57,8 @@ def main() -> None:
     engine.preload()
     manager = JobManager(engine, previewer=FfmpegPreviewer())
 
-    config = uvicorn.Config(create_app(manager), host=HOST, port=args.port, log_level="warning")
+    app = create_app(manager, dialogs=NativeDialogs())
+    config = uvicorn.Config(app, host=HOST, port=args.port, log_level="warning")
     server = uvicorn.Server(config)
     if not args.no_browser:
         open_browser_when_ready(server, url)

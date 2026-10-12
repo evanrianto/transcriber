@@ -52,6 +52,10 @@ class NoJobRunning(Exception):
     pass
 
 
+class NoTranscript(Exception):
+    pass
+
+
 @dataclass
 class Job:
     id: str
@@ -61,6 +65,7 @@ class Job:
     segments: list[Segment] = field(default_factory=list)
     duration: float | None = None
     saved_to: Path | None = None
+    save_error: str | None = None  # the Transcript is done but couldn't be written
     error: str | None = None
     percent: float = 0.0
     eta_seconds: float | None = None
@@ -163,6 +168,27 @@ class JobManager:
                 raise NoJobRunning("No Job is running")
             self._cancel.set()
 
+    def suggested_transcript_path(self) -> Path:
+        """Where the current Transcript would normally be saved (to pre-fill Save as…)."""
+        with self._lock:
+            if self._job is None:
+                raise NoTranscript("There is no Transcript yet")
+            recording = self._job.recording
+        return transcript_path_for(recording, self._clock())
+
+    def save_as(self, path: Path) -> None:
+        """Write the finished Transcript to `path`, chosen by the user."""
+        with self._lock:
+            if self._job is None or self._job.state is not JobState.DONE:
+                raise NoTranscript("There is no finished Transcript to save")
+            job = self._job
+            text = render_transcript(job.segments)
+        path.write_text(text, encoding="utf-8")
+        with self._lock:
+            job.saved_to = path
+            job.save_error = None
+            job.version += 1
+
     def wait(self, timeout: float | None = None) -> None:
         """Block until the current Job's transcription finishes (used by tests)."""
         if self._worker is not None:
@@ -235,10 +261,18 @@ class JobManager:
                     job.version += 1
             if cancel.is_set():
                 return self._mark_cancelled(job)
-            saved_to = transcript_path_for(job.recording, self._clock())
-            saved_to.write_text(render_transcript(job.segments), encoding="utf-8")
+            saved_to: Path | None = transcript_path_for(job.recording, self._clock())
+            save_error = None
+            try:
+                assert saved_to is not None
+                saved_to.write_text(render_transcript(job.segments), encoding="utf-8")
+            except OSError as error:
+                saved_to = None
+                reason = error.strerror or str(error)
+                save_error = f"Couldn't save next to the video in {job.recording.parent} ({reason})"
             with self._lock:
                 job.saved_to = saved_to
+                job.save_error = save_error
                 job.state = JobState.DONE
                 job.version += 1
         except Exception as error:
