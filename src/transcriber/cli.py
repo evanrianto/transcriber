@@ -57,7 +57,7 @@ def main() -> None:
     engine.preload()
     manager = JobManager(engine, previewer=FfmpegPreviewer())
 
-    app = create_app(manager, dialogs=NativeDialogs())
+    app = create_app(manager, dialogs=NativeDialogs(), device=lambda: engine.device.name)
     config = uvicorn.Config(app, host=HOST, port=args.port, log_level="warning")
     server = uvicorn.Server(config)
     if not args.no_browser:

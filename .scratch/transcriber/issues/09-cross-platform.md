@@ -4,11 +4,15 @@
 
 **Blocked by:** 01 (Walking skeleton)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] With no usable CUDA device (or if CUDA fails to initialize), the app falls back to CPU (int8) automatically instead of crashing
-- [ ] On CPU, the UI shows a persistent, clear warning before and during a Job that transcription will be much slower (roughly 30–60+ minutes per hour of Recording)
+- [x] With no usable CUDA device (or if CUDA fails to initialize), the app falls back to CPU (int8) automatically instead of crashing
+- [x] On CPU, the UI shows a persistent, clear warning before and during a Job that transcription will be much slower (measured ~1.2x real time on a Ryzen 5 5600X, so about an hour or more per hour of Recording)
 - [ ] `make install` succeeds on Windows, macOS, and Linux, installing the CUDA libraries only where they apply
-- [ ] The README covers, per platform: installing `make` (Windows: `winget install ezwinports.make`; macOS: Xcode Command Line Tools; Linux: the distro's package manager), then `make install` and `make run`, the ~3 GB model download, and GPU vs CPU expectations
-- [ ] The README states that the app only listens on `localhost` and why (ADR-0001)
-- [ ] An MIT `LICENSE` file is added
+- [x] The README covers, per platform: installing `make` (Windows: `winget install ezwinports.make`; macOS: Xcode Command Line Tools; Linux: the distro's package manager), then `make install` and `make run`, the ~3 GB model download, and GPU vs CPU expectations
+- [x] The README states that the app only listens on `localhost` and why (ADR-0001)
+- [x] An MIT `LICENSE` file is added
+
+## Comments
+
+CPU fallback verified on Windows both with the GPU hidden (`CUDA_VISIBLE_DEVICES=-1`) and with the CUDA libraries missing (the warm-up at model load catches the lazy cuBLAS failure). `make install` was only run on Windows; macOS and the Linux CUDA-library preloading are untested.

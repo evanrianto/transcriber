@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from transcriber.transcript import Segment
-from transcriber.whisper_options import LanguageMode, whisper_options
+from transcriber.whisper_options import Device, LanguageMode, choose_device, whisper_options
 
 MODEL_NAME = "large-v3"
 # Chunks of audio decoded together on the GPU. Higher is faster but makes live progress
@@ -32,7 +32,8 @@ class Engine(Protocol):
 
 
 class WhisperEngine:
-    """faster-whisper running large-v3 on an NVIDIA GPU, batched for speed.
+    """faster-whisper running large-v3, batched for speed: on an NVIDIA GPU when there is
+    one, otherwise (or if the GPU fails to load the model) on the CPU.
 
     The batched pipeline always splits audio with the voice detector (VAD) first, which
     also stops Whisper inventing text over silence and music.
@@ -42,6 +43,7 @@ class WhisperEngine:
     """
 
     def __init__(self) -> None:
+        self.device = self._planned_device()
         self._model: Any = None
         self._batched: Any = None
         self._load_error: BaseException | None = None
@@ -56,16 +58,43 @@ class WhisperEngine:
             self._loading = True
         threading.Thread(target=self._load, name="whisper-load", daemon=True).start()
 
+    @staticmethod
+    def _planned_device() -> Device:
+        try:
+            import ctranslate2
+
+            return choose_device(ctranslate2.get_cuda_device_count())
+        except Exception:
+            return choose_device(0)
+
     def _load(self) -> None:
         try:
             from faster_whisper import BatchedInferencePipeline, WhisperModel
 
-            self._model = WhisperModel(MODEL_NAME, device="cuda", compute_type="float16")
+            try:
+                self._model = self._load_model(WhisperModel, self.device)
+            except Exception:
+                if self.device.name == "cpu":
+                    raise
+                # e.g. missing CUDA libraries or an unsupported GPU: CPU still works.
+                self.device = choose_device(0)
+                self._model = self._load_model(WhisperModel, self.device)
             self._batched = BatchedInferencePipeline(self._model)
         except BaseException as error:  # surfaced to the Job that needs the model
             self._load_error = error
         finally:
             self._loaded.set()
+
+    @staticmethod
+    def _load_model(whisper_model: Any, device: Device) -> Any:
+        import numpy
+
+        model = whisper_model(MODEL_NAME, device=device.name, compute_type=device.compute_type)
+        # CUDA libraries load lazily, so a broken GPU setup only shows on first use: warm up
+        # on a second of silence now, while falling back to the CPU is still possible.
+        segments, _info = model.transcribe(numpy.zeros(16000, dtype=numpy.float32), language="en")
+        list(segments)
+        return model
 
     def _wait_for_model(self) -> None:
         self.preload()

@@ -267,6 +267,7 @@ $("import-form").addEventListener("submit", async (event) => {
     showImportError(detail);
     return;
   }
+  checkDevice(); // the engine may have fallen back to the CPU while loading
   watchJob();
 });
 
@@ -327,4 +328,14 @@ $("new-button").addEventListener("click", () => {
   show("import");
 });
 
+async function checkDevice() {
+  try {
+    const { device } = await (await fetch("/api/system")).json();
+    $("cpu-warning").hidden = device !== "cpu";
+  } catch {
+    // The warning is a nicety; never block the page on it.
+  }
+}
+
+checkDevice();
 watchJob();

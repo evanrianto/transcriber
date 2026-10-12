@@ -308,3 +308,11 @@ def test_closing_the_save_dialog_saves_nothing(
 
     assert response.status_code == 200
     assert response.json()["job"]["saved_to"] == saved_before
+
+
+def test_the_page_can_tell_whether_transcription_runs_on_the_gpu_or_the_cpu(
+    manager: JobManager,
+) -> None:
+    client = TestClient(create_app(manager, dialogs=FakeDialogs(), device=lambda: "cpu"))
+
+    assert client.get("/api/system").json() == {"device": "cpu"}

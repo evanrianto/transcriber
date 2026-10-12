@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -102,8 +102,15 @@ def clean_path(raw: str) -> Path:
     return Path(raw.strip().strip('"').strip("'"))
 
 
-def create_app(manager: JobManager, dialogs: Dialogs) -> FastAPI:
+def create_app(
+    manager: JobManager, dialogs: Dialogs, device: Callable[[], str] = lambda: "cuda"
+) -> FastAPI:
+    """`device` reports where Whisper runs ("cuda" or "cpu") so the page can warn on CPU."""
     app = FastAPI(title="Transcriber")
+
+    @app.get("/api/system")
+    def system() -> dict[str, Any]:
+        return {"device": device()}
 
     @app.get("/api/job")
     def get_job() -> dict[str, Any]:

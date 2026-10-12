@@ -217,6 +217,10 @@ input[type="text"] {
   color: var(--warning);
 }
 
+.cpu-warning {
+  margin-bottom: 16px;
+}
+
 #import-note {
   margin-bottom: 20px;
 }
